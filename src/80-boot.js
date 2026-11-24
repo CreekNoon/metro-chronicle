@@ -31,12 +31,14 @@ var App = {
 function setMapLocked(locked) {
   var map = App.map;
   if (!map) return;
-  var handlers = [map.dragging, map.touchZoom, map.scrollWheelZoom, map.boxZoom, map.keyboard];
+  // 滚轮缩放与双击缩放一律禁用（播放/编辑态都不用滚轮改比例）
+  var handlers = [map.dragging, map.touchZoom, map.boxZoom, map.keyboard];
   handlers.forEach(function (handler) {
     if (!handler) return;
     if (locked) handler.disable();
     else handler.enable();
   });
+  if (map.scrollWheelZoom) map.scrollWheelZoom.disable();
   if (map.doubleClickZoom) map.doubleClickZoom.disable();
   var container = map.getContainer();
   if (container) container.classList.toggle('is-locked', !!locked);
@@ -57,6 +59,7 @@ function createMap() {
     maxZoom: 17,
     worldCopyJump: false,
     doubleClickZoom: false,
+    scrollWheelZoom: false,   // 不允许用滚轮改比例
     keyboard: true,
     preferCanvas: false,
     // 镜头自己驱动视野：关掉 Leaflet 自身的缩放/瓦片淡入动画，避免逐帧重绘造成的闪烁
@@ -161,6 +164,7 @@ function bindHud() {
 
   LineUI.bind();
   ZoomUI.bind();
+  CitySearch.bind();
 
   window.addEventListener('resize', debounce(onViewportChange, 160));
   window.addEventListener('orientationchange', debounce(onViewportChange, 220));
@@ -295,6 +299,7 @@ window.__METRO__ = {
   CityUI: CityUI,
   LineUI: LineUI,
   LineSelection: LineSelection,
+  CitySearch: CitySearch,
   ZoomUI: ZoomUI,
   RemoteStore: RemoteStore,
   api: {

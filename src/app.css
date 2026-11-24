@@ -1041,6 +1041,64 @@ body.is-editing .leaflet-marker-draggable:active { cursor: grabbing; }
 .zoom-ctl button:hover { background: rgba(18, 22, 27, 0.07); color: var(--ink); }
 .zoom-ctl button:active { background: rgba(18, 22, 27, 0.12); }
 
+.zoom-ctl button:disabled,
+.zoom-ctl button.is-disabled {
+  opacity: 0.34;
+  cursor: not-allowed;
+}
+
+.zoom-ctl button:disabled:hover,
+.zoom-ctl button.is-disabled:hover {
+  background: transparent;
+  color: var(--ink-2);
+}
+
+.zoom-ctl.is-inert { box-shadow: none; }
+
+/* 城市搜索面板 */
+.search-results {
+  max-height: 44vh;
+  overflow-y: auto;
+  margin: 0 0 12px;
+  padding-right: 4px;
+}
+
+.search-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 150ms var(--ease-out);
+}
+
+.search-row:hover { background: rgba(18, 22, 27, 0.06); }
+
+.search-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.search-tag {
+  padding: 2px 6px;
+  border-radius: 5px;
+  background: rgba(18, 22, 27, 0.07);
+  color: #5b636e;
+  font-size: 10px;
+}
+
+.search-meta {
+  font-size: 10px;
+  color: var(--ink-3);
+  min-width: 34px;
+  text-align: right;
+}
+
 .zoom-divider {
   width: 16px;
   height: 1px;

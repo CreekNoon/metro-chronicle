@@ -50,9 +50,15 @@
     </div>
   </aside>
 
-  <!-- 右上：城市选择 / 线路多选 / 编辑入口 / 地图设置 -->
+  <!-- 右上：城市选择 / 城市搜索 / 线路多选 / 编辑入口 / 地图设置 -->
   <div class="hud controls" id="controls">
     <select class="ctl ctl-select" id="citySelect" aria-label="切换城市"></select>
+    <button class="ctl ctl-icon" id="citySearchBtn" type="button" aria-label="搜索城市（支持区县）" title="搜索城市 / 区县">
+      <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true">
+        <circle cx="10.5" cy="10.5" r="6" />
+        <path d="M15 15l4.5 4.5" />
+      </svg>
+    </button>
     <button class="ctl ctl-lines" id="lineSelectBtn" type="button" aria-expanded="false" aria-controls="linePanel">
       线路<span class="ctl-count" id="lineSelectCount">0/0</span>
     </button>
@@ -211,6 +217,26 @@
         <button class="btn-danger-plain" type="button" id="deleteLineBtn">删除本线</button>
         <button class="btn-plain" type="button" data-close="lineSheet">取消</button>
         <button class="btn-primary" type="button" id="saveLineBtn">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 城市搜索面板（支持区县 / 街道） -->
+  <div class="sheet" id="searchSheet" aria-hidden="true" role="dialog" aria-modal="true" aria-label="搜索城市">
+    <div class="sheet-panel">
+      <div class="sheet-head">
+        <h2>搜索城市</h2>
+        <button class="sheet-close" type="button" data-close="searchSheet" aria-label="关闭">×</button>
+      </div>
+      <p class="sheet-desc">支持省级 / 地级市 / 县级市 / 区县 / 街道。选中的结果若已存在就直接切换，否则按它的中心点新建一个空白城市。</p>
+      <label class="sheet-field">
+        <span>城市 / 区县名称</span>
+        <input id="citySearchInput" type="search" spellcheck="false" autocomplete="off" placeholder="例如：株洲、雨湖区、韶山" />
+      </label>
+      <p class="sheet-status" id="citySearchHint"></p>
+      <div class="search-results" id="citySearchResults"></div>
+      <div class="sheet-actions">
+        <button class="btn-plain" type="button" data-close="searchSheet">关闭</button>
       </div>
     </div>
   </div>

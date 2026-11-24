@@ -480,11 +480,21 @@ function listCities() {
   return list;
 }
 
-/** 新建自定义城市：空白线网，坐标使用 WGS84 */
-function createCustomCity(name, center) {
+/**
+ * 新建自定义城市：空白线网，坐标使用 WGS84。
+ * 同名且中心相距很近的自定义城市会直接复用，避免搜索同一地点反复建城。
+ */
+function createCustomCity(name, center, zoom) {
   var trimmed = String(name || '').trim().slice(0, 24) || '自定义城市';
-  var view = normalizeView({ center: center, zoom: 12 }, { center: [27.865, 113.135], zoom: 11 });
+  var view = normalizeView({ center: center, zoom: zoom || 12 }, { center: [27.865, 113.135], zoom: 11 });
   var cities = loadCustomCities();
+
+  var reused = cities.filter(function (city) {
+    if (city.name !== trimmed) return false;
+    return haversineMeters([city.view.center[0], city.view.center[1]], [view.center[0], view.center[1]]) < 3000;
+  })[0];
+  if (reused) return reused.id;
+
   var id = 'custom-' + Date.now().toString(36);
   cities.push({ id: id, name: trimmed, view: view });
   saveCustomCities(cities);

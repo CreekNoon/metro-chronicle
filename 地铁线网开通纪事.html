@@ -1719,6 +1719,64 @@ body.is-editing .leaflet-marker-draggable:active { cursor: grabbing; }
 .zoom-ctl button:hover { background: rgba(18, 22, 27, 0.07); color: var(--ink); }
 .zoom-ctl button:active { background: rgba(18, 22, 27, 0.12); }
 
+.zoom-ctl button:disabled,
+.zoom-ctl button.is-disabled {
+  opacity: 0.34;
+  cursor: not-allowed;
+}
+
+.zoom-ctl button:disabled:hover,
+.zoom-ctl button.is-disabled:hover {
+  background: transparent;
+  color: var(--ink-2);
+}
+
+.zoom-ctl.is-inert { box-shadow: none; }
+
+/* 城市搜索面板 */
+.search-results {
+  max-height: 44vh;
+  overflow-y: auto;
+  margin: 0 0 12px;
+  padding-right: 4px;
+}
+
+.search-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 150ms var(--ease-out);
+}
+
+.search-row:hover { background: rgba(18, 22, 27, 0.06); }
+
+.search-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.search-tag {
+  padding: 2px 6px;
+  border-radius: 5px;
+  background: rgba(18, 22, 27, 0.07);
+  color: #5b636e;
+  font-size: 10px;
+}
+
+.search-meta {
+  font-size: 10px;
+  color: var(--ink-3);
+  min-width: 34px;
+  text-align: right;
+}
+
 .zoom-divider {
   width: 16px;
   height: 1px;
@@ -2097,9 +2155,15 @@ body.is-editing #editBtn { display: none; }
     </div>
   </aside>
 
-  <!-- 右上：城市选择 / 线路多选 / 编辑入口 / 地图设置 -->
+  <!-- 右上：城市选择 / 城市搜索 / 线路多选 / 编辑入口 / 地图设置 -->
   <div class="hud controls" id="controls">
     <select class="ctl ctl-select" id="citySelect" aria-label="切换城市"></select>
+    <button class="ctl ctl-icon" id="citySearchBtn" type="button" aria-label="搜索城市（支持区县）" title="搜索城市 / 区县">
+      <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true">
+        <circle cx="10.5" cy="10.5" r="6" />
+        <path d="M15 15l4.5 4.5" />
+      </svg>
+    </button>
     <button class="ctl ctl-lines" id="lineSelectBtn" type="button" aria-expanded="false" aria-controls="linePanel">
       线路<span class="ctl-count" id="lineSelectCount">0/0</span>
     </button>
@@ -2258,6 +2322,26 @@ body.is-editing #editBtn { display: none; }
         <button class="btn-danger-plain" type="button" id="deleteLineBtn">删除本线</button>
         <button class="btn-plain" type="button" data-close="lineSheet">取消</button>
         <button class="btn-primary" type="button" id="saveLineBtn">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 城市搜索面板（支持区县 / 街道） -->
+  <div class="sheet" id="searchSheet" aria-hidden="true" role="dialog" aria-modal="true" aria-label="搜索城市">
+    <div class="sheet-panel">
+      <div class="sheet-head">
+        <h2>搜索城市</h2>
+        <button class="sheet-close" type="button" data-close="searchSheet" aria-label="关闭">×</button>
+      </div>
+      <p class="sheet-desc">支持省级 / 地级市 / 县级市 / 区县 / 街道。选中的结果若已存在就直接切换，否则按它的中心点新建一个空白城市。</p>
+      <label class="sheet-field">
+        <span>城市 / 区县名称</span>
+        <input id="citySearchInput" type="search" spellcheck="false" autocomplete="off" placeholder="例如：株洲、雨湖区、韶山" />
+      </label>
+      <p class="sheet-status" id="citySearchHint"></p>
+      <div class="search-results" id="citySearchResults"></div>
+      <div class="sheet-actions">
+        <button class="btn-plain" type="button" data-close="searchSheet">关闭</button>
       </div>
     </div>
   </div>
@@ -2930,11 +3014,21 @@ function listCities() {
   return list;
 }
 
-/** 新建自定义城市：空白线网，坐标使用 WGS84 */
-function createCustomCity(name, center) {
+/**
+ * 新建自定义城市：空白线网，坐标使用 WGS84。
+ * 同名且中心相距很近的自定义城市会直接复用，避免搜索同一地点反复建城。
+ */
+function createCustomCity(name, center, zoom) {
   var trimmed = String(name || '').trim().slice(0, 24) || '自定义城市';
-  var view = normalizeView({ center: center, zoom: 12 }, { center: [27.865, 113.135], zoom: 11 });
+  var view = normalizeView({ center: center, zoom: zoom || 12 }, { center: [27.865, 113.135], zoom: 11 });
   var cities = loadCustomCities();
+
+  var reused = cities.filter(function (city) {
+    if (city.name !== trimmed) return false;
+    return haversineMeters([city.view.center[0], city.view.center[1]], [view.center[0], view.center[1]]) < 3000;
+  })[0];
+  if (reused) return reused.id;
+
   var id = 'custom-' + Date.now().toString(36);
   cities.push({ id: id, name: trimmed, view: view });
   saveCustomCities(cities);
@@ -3178,6 +3272,7 @@ var BASEMAP_SOURCES = {
   esriReference: 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Reference/MapServer/tile/{z}/{y}/{x}',
   amapTiles: 'https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}',
   amapProbe: 'https://restapi.amap.com/v3/ip',
+  amapDistrict: 'https://restapi.amap.com/v3/config/district',
   openFreeMapStyle: 'https://tiles.openfreemap.org/styles/positron',
   maplibreScript: 'https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js'
 };
@@ -3347,7 +3442,7 @@ var Basemap = {
       maxZoom: 19,
       maxNativeZoom: 16,
       crossOrigin: true,
-      keepBuffer: 6,             // 多留一圈瓦片，平移时不易出现空白闪烁
+      keepBuffer: 10,            // 多留几圈瓦片，平移/缩放时不易出现空白
       updateWhenZooming: false,
       pane: 'tilePane'
     });
@@ -3355,7 +3450,7 @@ var Basemap = {
       maxZoom: 19,
       maxNativeZoom: 16,
       crossOrigin: true,
-      keepBuffer: 6,
+      keepBuffer: 10,
       updateWhenZooming: false,
       pane: 'tilePane'
     });
@@ -3391,7 +3486,7 @@ var Basemap = {
       maxNativeZoom: 18,
       className: 'basemap-amap',
       crossOrigin: true,
-      keepBuffer: 6,             // 多留一圈瓦片，镜头平移时不易出现空白闪烁
+      keepBuffer: 10,            // 多留几圈瓦片，镜头平移时不易出现空白
       updateWhenZooming: false,
       pane: 'tilePane'
     });
@@ -3581,6 +3676,43 @@ var Basemap = {
         try { self.vectorMap.resize(); } catch (err) { /* noop */ }
       }
     });
+  },
+
+  /* ------------------------------------------------------- 瓦片预取 */
+
+  /**
+   * 预热瓦片缓存：按给定经纬度范围与缩放层级，把对应瓦片先请求一遍。
+   * 镜头切换前调用，正式进入视野时直接命中浏览器缓存，不再"边转边加载"。
+   */
+  prefetch: function (bounds, levels) {
+    var map = this.map;
+    if (!map || !bounds || !bounds.isValid || !bounds.isValid()) return 0;
+    var layer = this.amapLayer || this.rasterLayers[0];
+    if (!layer || typeof layer.getTileUrl !== 'function') return 0;
+
+    var maxNative = layer.options.maxNativeZoom || 18;
+    var urls = [];
+    (levels || []).forEach(function (level) {
+      var zoom = clamp(Math.round(level), map.getMinZoom(), maxNative);
+      var nw = map.project(bounds.getNorthWest(), zoom).divideBy(256).floor();
+      var se = map.project(bounds.getSouthEast(), zoom).divideBy(256).floor();
+      var count = 0;
+      for (var x = nw.x; x <= se.x && count < 30; x += 1) {
+        for (var y = nw.y; y <= se.y && count < 30; y += 1) {
+          try {
+            urls.push(layer.getTileUrl({ x: x, y: y, z: zoom }));
+          } catch (err) { /* noop */ }
+          count += 1;
+        }
+      }
+    });
+
+    urls.slice(0, 96).forEach(function (url) {
+      var img = new Image();
+      img.decoding = 'async';
+      img.src = url;      // 进 HTTP 缓存；不保留引用
+    });
+    return Math.min(urls.length, 96);
   },
 
   /* -------------------------------------------------------- 状态工具 */
@@ -4740,9 +4872,10 @@ function resolveLabelSidesFor(map, list) {
 
 var CAMERA = {
   minSpan: 2600,          // 最小视野跨度（米）
-  maxSpan: 60000,         // 最大视野跨度（米）：足够容下最长线路（城际 32km）
-  lineFitFactor: 1.18,    // 单条线路的固定取景跨度 = 线路长度 × 该系数（整线落在画面内）
+  maxSpan: 60000,         // 最大视野跨度（米）
   stationSpan: 1800,      // 单站开通的取景跨度（特写）
+  linePadding: 96,        // 单线取景留白（像素）
+  overviewPadding: 150,   // 全览留白（像素，比单线更大 → 全览一定比单线更远）
   zoomStep: 0.75,         // 换级滞回：只在事件之间换级，线路运行途中不改缩放
   lerpCenter: 0.16,       // 每帧向目标中心插值比例
   lerpZoom: 0.14,         // 每帧向目标 zoom 插值比例
@@ -4810,8 +4943,8 @@ var Camera = {
     s.lng += (t.lng - s.lng) * kc;
     s.zoom += (t.zoom - s.zoom) * kz;
 
-    // 瓦片始终落在整数层级：既清晰，也避免逐帧重取瓦片造成闪烁
-    var appliedZoom = Math.round(clamp(s.zoom, 4, 17));
+    // 连续缩放：平滑过渡（瓦片由 Leaflet 自动缩放复用，配合预取不会出现空白）
+    var appliedZoom = clamp(s.zoom, 4, 17);
     var center = map.getCenter();
     var scale = 360 / (256 * Math.pow(2, appliedZoom));         // 每像素经度跨度
     var latRad = center.lat * Math.PI / 180;
@@ -4819,7 +4952,7 @@ var Camera = {
       Math.abs(s.lng - center.lng) / scale,
       Math.abs(s.lat - center.lat) / (scale * Math.max(0.2, Math.cos(latRad)))
     );
-    var zoomChanged = appliedZoom !== Math.round(map.getZoom());
+    var zoomChanged = Math.abs(appliedZoom - map.getZoom()) > 0.012;
     if (!zoomChanged && px < CAMERA.panThresholdPx) return;
 
     map.setView(L.latLng(s.lat, s.lng), appliedZoom, { animate: false });
@@ -4831,14 +4964,14 @@ var Camera = {
   snapTo: function (center, zoom) {
     this.flying = false;
     var map = App.map;
-    var z = clamp(zoom, 4, 17);
+    var z = clamp(zoom, 4, 17);           // 保留小数：平滑、不跳级
     this.state.lat = center[0];
     this.state.lng = center[1];
     this.state.zoom = z;
     this.target.lat = center[0];
     this.target.lng = center[1];
     this.target.zoom = z;
-    if (map) map.setView(L.latLng(center[0], center[1]), Math.round(z), { animate: false });
+    if (map) map.setView(L.latLng(center[0], center[1]), z, { animate: false });
   },
 
   /** 直接把视图设为目标（带像素阈值），再让 state 吸附 */
@@ -4846,10 +4979,22 @@ var Camera = {
     this.snapTo(center, zoom);
   },
 
-  /** 单条线路的固定缩放：让整条线路都落在画面内，运行途中不再变化 */
-  lineZoom: function (lengthMeters) {
-    var span = clamp((lengthMeters || 0) * CAMERA.lineFitFactor, CAMERA.minSpan, CAMERA.maxSpan);
-    return this.zoomForSpan(span);
+  /** 用「包围盒 + 留白」求适配缩放（与全览同一套算法，只是留白更小） */
+  fitZoom: function (points, padding) {
+    var map = App.map;
+    if (!map || !points || !points.length) return 11;
+    var bounds = L.latLngBounds(points);
+    if (!bounds.isValid()) return 11;
+    var zoom = map.getBoundsZoom(bounds, false, L.point(padding, padding));
+    return clamp(zoom, 4, 17);
+  },
+
+  /** 单条线路的固定缩放：按该线包围盒取景，整条线路落在画面内 */
+  lineZoom: function (lineIndex) {
+    var line = App.plan && App.plan.lines ? App.plan.lines[lineIndex] : null;
+    var geometry = line && Scene.geometries ? Scene.geometries[line.key] : null;
+    if (!geometry || geometry.render.length < 2) return this.stationZoom();
+    return this.fitZoom(geometry.render, CAMERA.linePadding);
   },
 
   /** 单站开通的固定缩放（特写） */
@@ -4897,17 +5042,13 @@ var Camera = {
     });
   },
 
-  /** 某一组经纬度点的适配视野（用于全览） */
+  /** 某一组经纬度点的适配视野（用于全览；留白比单线更大，因此一定比单线更远） */
   fitTarget: function (points) {
     var map = App.map;
     if (!map || !points.length) return null;
     var bounds = L.latLngBounds(points);
-    var size = map.getSize();
-    var zoom = Math.min(
-      map.getBoundsZoom(bounds, false, L.point(120, 150)),
-      this.zoomForSpan(L.latLng(bounds.getNorthWest()).distanceTo(L.latLng(bounds.getSouthEast())))
-    );
-    return { center: bounds.getCenter(), zoom: clamp(zoom, 4, 17) };
+    if (!bounds.isValid()) return null;
+    return { center: bounds.getCenter(), zoom: this.fitZoom(points, CAMERA.overviewPadding) };
   },
 
   /** 用户手动缩放/复位：暂停自动跟拍，直到下一个事件 */
@@ -5089,6 +5230,9 @@ var Story = {
       return tl;
     }
 
+    // 播放期间禁止手动改比例（滚轮已禁用，缩放按钮也置灰）
+    if (typeof ZoomUI !== 'undefined') ZoomUI.setEnabled(false);
+
     // 开场先给全览，第一个事件再飞入特写
     Scene.fit(false);
     Camera.init();
@@ -5108,9 +5252,10 @@ var Story = {
       /* --- 镜头飞行到事件起点 --- */
       var startPoint = isLine ? self.lineStartPoint(event.lineIndex) : self.stationPoint(event.stationKey);
       // 整线：用「整条线路刚好落在画面内」的固定缩放；单站：固定特写缩放
-      var targetZoom = isLine ? Camera.lineZoom(self.lineLength(event.lineIndex)) : Camera.stationZoom();
+      var targetZoom = isLine ? Camera.lineZoom(event.lineIndex) : Camera.stationZoom();
       var travelAt = cursor + (index > 0 ? 0.14 : 0);
       tl.call(function () {
+        self.prefetchEvent(event, targetZoom);
         Camera.flyTo(startPoint, targetZoom, {
           duration: timing.travel,
           dip: index === 0 ? 0.6 : undefined
@@ -5160,6 +5305,7 @@ var Story = {
     var overview = self.overviewTarget();
     if (overview) {
       tl.call(function () {
+        self.prefetchOverview(overview.zoom);
         Camera.flyTo([overview.center.lat, overview.center.lng], overview.zoom, {
           duration: timing.outro,
           dip: 0.9
@@ -5285,11 +5431,43 @@ var Story = {
     return geometry.render[0];
   },
 
-  /** 线路实际长度（米）：决定该线路的固定取景缩放 */
+  /** 线路实际长度（米）：仅用于诊断/埋点 */
   lineLength: function (lineIndex) {
     var line = App.plan.lines[lineIndex];
     var geometry = line ? Scene.geometries[line.key] : null;
     return geometry && isFiniteNumber(geometry.totalMeters) ? geometry.totalMeters : 0;
+  },
+
+  /** 事件开始前，预热即将进入视野的瓦片（±1 个层级），避免"边转边加载" */
+  prefetchEvent: function (event, zoom) {
+    if (typeof Basemap === 'undefined' || !Basemap.prefetch || !event) return;
+    var line = App.plan.lines[event.lineIndex];
+    var geometry = line ? Scene.geometries[line.key] : null;
+    var points = [];
+
+    if (event.type === 'line' && geometry) {
+      points = geometry.render;
+    } else {
+      var node = Scene.stations[event.stationKey];
+      if (node) {
+        var latlng = node.marker.getLatLng();
+        var pad = 0.018;
+        points = [[latlng.lat - pad, latlng.lng - pad], [latlng.lat + pad, latlng.lng + pad]];
+      }
+    }
+    if (!points.length) return;
+    Basemap.prefetch(L.latLngBounds(points), [zoom - 1, zoom, zoom + 1]);
+  },
+
+  /** 收束到全览前预热整张网络 */
+  prefetchOverview: function (zoom) {
+    if (typeof Basemap === 'undefined' || !Basemap.prefetch) return;
+    var points = [];
+    Object.keys(Scene.geometries).forEach(function (key) {
+      points = points.concat(Scene.geometries[key].render);
+    });
+    if (!points.length) return;
+    Basemap.prefetch(L.latLngBounds(points), [zoom, zoom + 1]);
   },
 
   stationPoint: function (stationKey) {
@@ -5340,6 +5518,7 @@ var Story = {
     Scene.updateCredit();
     Scene.resolveLabelSides();
     Camera.active = false;
+    if (typeof ZoomUI !== 'undefined') ZoomUI.setEnabled(true);
     this.finished = true;
     this.playing = false;
   },
@@ -5370,6 +5549,7 @@ var Story = {
     this.drawing = false;
     Camera.active = false;
     Camera.suspended = false;
+    if (typeof ZoomUI !== 'undefined') ZoomUI.setEnabled(true);
 
     var hud = [$('#dateText'), $('#lineHead'), $('#stats'), $('#timeCapsule'), $('#credit'), $('#replayBtn'), $('#skipBtn'), $('#controls'), $('#zoomCtl')];
     hud.forEach(function (el) {
@@ -6398,10 +6578,24 @@ var ZoomUI = {
     });
   },
 
-  /** 播放期间也允许用按钮缩放（禁止的是手势拖拽/滚轮）；手动缩放会暂停自动跟拍 */
+  /** 播放动画期间禁用缩放按钮；空闲/编辑态才可用 */
+  setEnabled: function (enabled) {
+    var on = !!enabled;
+    ['zoomIn', 'zoomOut', 'zoomFit'].forEach(function (id) {
+      var el = document.getElementById(id);
+      if (!el) return;
+      el.disabled = !on;
+      el.classList.toggle('is-disabled', !on);
+    });
+    var ctl = document.getElementById('zoomCtl');
+    if (ctl) ctl.classList.toggle('is-inert', !on);
+  },
+
+  /** 按钮缩放：仅在非播放态可用（播放期间比例由镜头控制） */
   step: function (delta) {
     var map = App.map;
     if (!map) return;
+    if (typeof Story !== 'undefined' && Story.playing) return;
     if (typeof Camera !== 'undefined') {
       Camera.active = false;
       Camera.suspend();
@@ -6424,6 +6618,7 @@ var ZoomUI = {
   fit: function () {
     var map = App.map;
     if (!map) return;
+    if (typeof Story !== 'undefined' && Story.playing) return;
     if (typeof Camera !== 'undefined') {
       Camera.active = false;
       Camera.suspend();
@@ -6693,6 +6888,219 @@ function closeAllSheets() {
   if (linePanel) linePanel.classList.remove('is-on');
 }
 
+/* ===== 72-search.js ===== */
+/* ==========================================================================
+   72 · 城市搜索（支持到区县/街道）
+   —— 优先调用高德行政区查询（v3/config/district，可搜到县级市 / 区 / 街道），
+      断网或没有 Key 时退化为本地城市名过滤；选中后按级别生成/切换城市。
+   ========================================================================== */
+
+var CITY_LEVEL_LABEL = {
+  country: '国家',
+  province: '省级',
+  city: '地级市',
+  district: '区县',
+  street: '街道',
+  custom: '自定义',
+  preset: '内置'
+};
+
+var CITY_LEVEL_ZOOM = {
+  country: 4,
+  province: 7,
+  city: 11,
+  district: 13,
+  street: 15
+};
+
+var CitySearch = {
+  timer: 0,
+  requestId: 0,
+  results: [],
+  keyword: '',
+  status: 'idle',      // idle | loading | done | offline
+  lastSource: 'none',
+
+  open: function () {
+    var input = $('#citySearchInput');
+    if (input) input.value = '';
+    this.keyword = '';
+    this.results = [];
+    this.status = 'idle';
+    this.renderResults([]);
+    openSheet('searchSheet');
+    if (input) window.setTimeout(function () { input.focus(); }, 60);
+  },
+
+  /** 输入防抖 320ms：先给本地结果，再补高德结果 */
+  onInput: function (value) {
+    var self = this;
+    this.keyword = String(value || '').trim();
+    window.clearTimeout(this.timer);
+    if (!this.keyword) {
+      this.results = [];
+      this.status = 'idle';
+      this.renderResults([]);
+      return;
+    }
+    // 本地结果立刻可见
+    this.results = this.localMatches(this.keyword);
+    this.status = 'loading';
+    this.renderResults(this.results);
+    this.timer = window.setTimeout(function () { self.searchRemote(self.keyword); }, 320);
+  },
+
+  localMatches: function (keyword) {
+    var kw = String(keyword || '').trim();
+    if (!kw) return [];
+    var customs = loadCustomCities();
+    return listCities().filter(function (city) {
+      return city.name.indexOf(kw) >= 0;
+    }).map(function (city) {
+      var preset = findPreset(city.id);
+      var custom = customs.filter(function (item) { return item.id === city.id; })[0];
+      var view = preset ? preset.view : (custom ? custom.view : null);
+      return {
+        id: city.id,
+        name: city.name,
+        level: city.custom ? 'custom' : 'preset',
+        lat: view ? view.center[0] : null,
+        lng: view ? view.center[1] : null,
+        source: 'local',
+        existing: true
+      };
+    });
+  },
+
+  /** 高德行政区查询：可搜到地级市 / 县级市 / 区 / 街道 */
+  searchRemote: function (keyword) {
+    var self = this;
+    var key = getStoredAmapKey();
+    if (!key || !/^[0-9a-fA-F]{32}$/.test(key)) {
+      this.status = 'offline';
+      this.renderResults(this.results);
+      return Promise.resolve([]);
+    }
+    var requestId = (this.requestId += 1);
+    var url = BASEMAP_SOURCES.amapDistrict +
+      '?keywords=' + encodeURIComponent(keyword) +
+      '&subdistrict=0&extensions=base&key=' + encodeURIComponent(key);
+
+    return fetch(url, { signal: AbortSignal.timeout ? AbortSignal.timeout(3500) : undefined })
+      .then(function (response) { return response.json(); })
+      .then(function (payload) {
+        if (requestId !== self.requestId) return [];           // 过期响应丢弃
+        if (!payload || String(payload.status) !== '1') {
+          self.status = 'done';
+          self.renderResults(self.results);
+          return [];
+        }
+        var remote = (payload.districts || []).slice(0, 8).map(function (district) {
+          var center = String(district.center || '').split(',');
+          var gcjLng = Number(center[0]);
+          var gcjLat = Number(center[1]);
+          var wgs = isFiniteNumber(gcjLat) && isFiniteNumber(gcjLng) && gcjLat !== 0
+            ? gcj02ToWgs84(gcjLat, gcjLng)
+            : null;
+          return {
+            id: 'amap-' + (district.adcode || district.name),
+            name: district.name,
+            level: district.level || 'district',
+            lat: wgs ? wgs[0] : null,
+            lng: wgs ? wgs[1] : null,
+            adcode: district.adcode || '',
+            source: 'amap'
+          };
+        }).filter(function (item) { return item.lat !== null && item.lng !== null; });
+
+        var seen = {};
+        self.results.forEach(function (item) { seen[item.name] = true; });
+        remote.forEach(function (item) { if (!seen[item.name]) self.results.push(item); });
+
+        self.lastSource = remote.length ? 'amap' : self.lastSource;
+        self.status = 'done';
+        self.renderResults(self.results);
+        return remote;
+      })
+      .catch(function () {
+        if (requestId !== self.requestId) return [];
+        self.status = 'offline';
+        self.renderResults(self.results);
+        return [];
+      });
+  },
+
+  renderResults: function (results) {
+    var list = $('#citySearchResults');
+    var hint = $('#citySearchHint');
+    if (hint) {
+      if (this.status === 'loading') hint.textContent = '正在搜索（本地 + 高德行政区）…';
+      else if (this.status === 'offline') hint.textContent = '高德不可用，仅显示本地城市。';
+      else if (this.keyword && !results.length && this.status === 'done') hint.textContent = '没有找到匹配的城市或区县。';
+      else if (!this.keyword) hint.textContent = '输入城市、区县或街道名，例如「株洲」「雨湖区」「韶山」。';
+      else hint.textContent = '共 ' + results.length + ' 个结果，点击即可创建/切换城市。';
+    }
+    if (!list) return;
+    if (!results.length) { list.innerHTML = ''; return; }
+
+    list.innerHTML = results.map(function (item, index) {
+      var level = CITY_LEVEL_LABEL[item.level] || item.level;
+      var meta = item.existing ? '已存在' : (item.source === 'amap' ? '高德' : '本地');
+      return '' +
+        '<button type="button" class="search-row" data-index="' + index + '">' +
+          '<span class="search-name">' + escapeHtml(item.name) + '</span>' +
+          '<span class="search-tag">' + escapeHtml(level) + '</span>' +
+          '<span class="search-meta">' + escapeHtml(meta) + '</span>' +
+        '</button>';
+    }).join('');
+  },
+
+  /** 选中一条结果：已存在就切过去，否则按中心点新建城市并进入编辑 */
+  choose: function (index) {
+    var item = this.results[index];
+    if (!item) return;
+    closeSheet('searchSheet');
+
+    if (item.existing && item.id) {
+      CityUI.switchCity(item.id);
+      return;
+    }
+    if (!isValidLatLng(item.lat, item.lng)) {
+      toast('该结果没有可用的中心坐标');
+      return;
+    }
+    var zoom = CITY_LEVEL_ZOOM[item.level] || 12;
+    var cityId = createCustomCity(item.name, [item.lat, item.lng], zoom);
+    CityUI.renderSelect();
+    CityUI.switchCity(cityId);
+    toast('已创建「' + item.name + '」，可在地图上点选站点');
+  },
+
+  bind: function () {
+    var self = this;
+    var input = $('#citySearchInput');
+    if (input) {
+      input.addEventListener('input', function () { self.onInput(input.value); });
+      input.addEventListener('keydown', function (event) {
+        if (event.key === 'Enter' && self.results.length) {
+          event.preventDefault();
+          self.choose(0);
+        }
+      });
+    }
+    var list = $('#citySearchResults');
+    if (list) {
+      list.addEventListener('click', function (event) {
+        var row = event.target && event.target.closest ? event.target.closest('.search-row') : null;
+        if (!row) return;
+        self.choose(Number(row.dataset.index));
+      });
+    }
+    var button = $('#citySearchBtn');
+    if (button) button.addEventListener('click', function () { self.open(); });
+  }
+};
+
 /* ===== 80-boot.js ===== */
 /* ==========================================================================
    80 · 启动与装配
@@ -6727,12 +7135,14 @@ var App = {
 function setMapLocked(locked) {
   var map = App.map;
   if (!map) return;
-  var handlers = [map.dragging, map.touchZoom, map.scrollWheelZoom, map.boxZoom, map.keyboard];
+  // 滚轮缩放与双击缩放一律禁用（播放/编辑态都不用滚轮改比例）
+  var handlers = [map.dragging, map.touchZoom, map.boxZoom, map.keyboard];
   handlers.forEach(function (handler) {
     if (!handler) return;
     if (locked) handler.disable();
     else handler.enable();
   });
+  if (map.scrollWheelZoom) map.scrollWheelZoom.disable();
   if (map.doubleClickZoom) map.doubleClickZoom.disable();
   var container = map.getContainer();
   if (container) container.classList.toggle('is-locked', !!locked);
@@ -6753,6 +7163,7 @@ function createMap() {
     maxZoom: 17,
     worldCopyJump: false,
     doubleClickZoom: false,
+    scrollWheelZoom: false,   // 不允许用滚轮改比例
     keyboard: true,
     preferCanvas: false,
     // 镜头自己驱动视野：关掉 Leaflet 自身的缩放/瓦片淡入动画，避免逐帧重绘造成的闪烁
@@ -6857,6 +7268,7 @@ function bindHud() {
 
   LineUI.bind();
   ZoomUI.bind();
+  CitySearch.bind();
 
   window.addEventListener('resize', debounce(onViewportChange, 160));
   window.addEventListener('orientationchange', debounce(onViewportChange, 220));
@@ -6991,6 +7403,7 @@ window.__METRO__ = {
   CityUI: CityUI,
   LineUI: LineUI,
   LineSelection: LineSelection,
+  CitySearch: CitySearch,
   ZoomUI: ZoomUI,
   RemoteStore: RemoteStore,
   api: {

@@ -88,6 +88,21 @@
     JSON.stringify(M.snapshot().story.events));
   await waitFinish();
 
+  /* ---------------------------------------------------- 3.5) 播放期间禁止改比例 */
+  const mapZoomBefore = map.getZoom();
+  M.Story.play();
+  await sleep(900);
+  const zoomDisabled = ['zoomIn', 'zoomOut', 'zoomFit'].every((id) => document.getElementById(id).disabled === true);
+  add('播放中缩放按钮被禁用', zoomDisabled, ['zoomIn', 'zoomOut', 'zoomFit'].map((id) => document.getElementById(id).disabled).join(','));
+  document.getElementById('zoomIn').click();
+  await sleep(500);
+  add('播放中点击缩放按钮不会接管镜头', M.Camera.active === true, 'cameraActive=' + M.Camera.active);
+  add('滚轮缩放始终关闭', map.scrollWheelZoom.enabled() === false);
+  M.Story.skip();
+  await sleep(700);
+  add('播放结束后缩放按钮恢复可用', ['zoomIn', 'zoomOut', 'zoomFit'].every((id) => document.getElementById(id).disabled === false),
+    ['zoomIn', 'zoomOut', 'zoomFit'].map((id) => document.getElementById(id).disabled).join(','));
+
   /* ---------------------------------------------------- 4) 编辑态增删线路 */
   document.getElementById('editBtn').click();
   await sleep(400);

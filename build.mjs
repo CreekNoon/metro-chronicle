@@ -21,6 +21,7 @@ const APP_PARTS = [
   '50-story.js',
   '60-edit.js',
   '70-city.js',
+  '72-search.js',
   '80-boot.js'
 ];
 

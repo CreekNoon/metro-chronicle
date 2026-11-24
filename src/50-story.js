@@ -166,6 +166,9 @@ var Story = {
       return tl;
     }
 
+    // 播放期间禁止手动改比例（滚轮已禁用，缩放按钮也置灰）
+    if (typeof ZoomUI !== 'undefined') ZoomUI.setEnabled(false);
+
     // 开场先给全览，第一个事件再飞入特写
     Scene.fit(false);
     Camera.init();
@@ -185,9 +188,10 @@ var Story = {
       /* --- 镜头飞行到事件起点 --- */
       var startPoint = isLine ? self.lineStartPoint(event.lineIndex) : self.stationPoint(event.stationKey);
       // 整线：用「整条线路刚好落在画面内」的固定缩放；单站：固定特写缩放
-      var targetZoom = isLine ? Camera.lineZoom(self.lineLength(event.lineIndex)) : Camera.stationZoom();
+      var targetZoom = isLine ? Camera.lineZoom(event.lineIndex) : Camera.stationZoom();
       var travelAt = cursor + (index > 0 ? 0.14 : 0);
       tl.call(function () {
+        self.prefetchEvent(event, targetZoom);
         Camera.flyTo(startPoint, targetZoom, {
           duration: timing.travel,
           dip: index === 0 ? 0.6 : undefined
@@ -237,6 +241,7 @@ var Story = {
     var overview = self.overviewTarget();
     if (overview) {
       tl.call(function () {
+        self.prefetchOverview(overview.zoom);
         Camera.flyTo([overview.center.lat, overview.center.lng], overview.zoom, {
           duration: timing.outro,
           dip: 0.9
@@ -362,11 +367,43 @@ var Story = {
     return geometry.render[0];
   },
 
-  /** 线路实际长度（米）：决定该线路的固定取景缩放 */
+  /** 线路实际长度（米）：仅用于诊断/埋点 */
   lineLength: function (lineIndex) {
     var line = App.plan.lines[lineIndex];
     var geometry = line ? Scene.geometries[line.key] : null;
     return geometry && isFiniteNumber(geometry.totalMeters) ? geometry.totalMeters : 0;
+  },
+
+  /** 事件开始前，预热即将进入视野的瓦片（±1 个层级），避免"边转边加载" */
+  prefetchEvent: function (event, zoom) {
+    if (typeof Basemap === 'undefined' || !Basemap.prefetch || !event) return;
+    var line = App.plan.lines[event.lineIndex];
+    var geometry = line ? Scene.geometries[line.key] : null;
+    var points = [];
+
+    if (event.type === 'line' && geometry) {
+      points = geometry.render;
+    } else {
+      var node = Scene.stations[event.stationKey];
+      if (node) {
+        var latlng = node.marker.getLatLng();
+        var pad = 0.018;
+        points = [[latlng.lat - pad, latlng.lng - pad], [latlng.lat + pad, latlng.lng + pad]];
+      }
+    }
+    if (!points.length) return;
+    Basemap.prefetch(L.latLngBounds(points), [zoom - 1, zoom, zoom + 1]);
+  },
+
+  /** 收束到全览前预热整张网络 */
+  prefetchOverview: function (zoom) {
+    if (typeof Basemap === 'undefined' || !Basemap.prefetch) return;
+    var points = [];
+    Object.keys(Scene.geometries).forEach(function (key) {
+      points = points.concat(Scene.geometries[key].render);
+    });
+    if (!points.length) return;
+    Basemap.prefetch(L.latLngBounds(points), [zoom, zoom + 1]);
   },
 
   stationPoint: function (stationKey) {
@@ -417,6 +454,7 @@ var Story = {
     Scene.updateCredit();
     Scene.resolveLabelSides();
     Camera.active = false;
+    if (typeof ZoomUI !== 'undefined') ZoomUI.setEnabled(true);
     this.finished = true;
     this.playing = false;
   },
@@ -447,6 +485,7 @@ var Story = {
     this.drawing = false;
     Camera.active = false;
     Camera.suspended = false;
+    if (typeof ZoomUI !== 'undefined') ZoomUI.setEnabled(true);
 
     var hud = [$('#dateText'), $('#lineHead'), $('#stats'), $('#timeCapsule'), $('#credit'), $('#replayBtn'), $('#skipBtn'), $('#controls'), $('#zoomCtl')];
     hud.forEach(function (el) {

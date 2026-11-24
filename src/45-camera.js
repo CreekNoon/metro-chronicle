@@ -8,9 +8,10 @@
 
 var CAMERA = {
   minSpan: 2600,          // 最小视野跨度（米）
-  maxSpan: 60000,         // 最大视野跨度（米）：足够容下最长线路（城际 32km）
-  lineFitFactor: 1.18,    // 单条线路的固定取景跨度 = 线路长度 × 该系数（整线落在画面内）
+  maxSpan: 60000,         // 最大视野跨度（米）
   stationSpan: 1800,      // 单站开通的取景跨度（特写）
+  linePadding: 96,        // 单线取景留白（像素）
+  overviewPadding: 150,   // 全览留白（像素，比单线更大 → 全览一定比单线更远）
   zoomStep: 0.75,         // 换级滞回：只在事件之间换级，线路运行途中不改缩放
   lerpCenter: 0.16,       // 每帧向目标中心插值比例
   lerpZoom: 0.14,         // 每帧向目标 zoom 插值比例
@@ -78,8 +79,8 @@ var Camera = {
     s.lng += (t.lng - s.lng) * kc;
     s.zoom += (t.zoom - s.zoom) * kz;
 
-    // 瓦片始终落在整数层级：既清晰，也避免逐帧重取瓦片造成闪烁
-    var appliedZoom = Math.round(clamp(s.zoom, 4, 17));
+    // 连续缩放：平滑过渡（瓦片由 Leaflet 自动缩放复用，配合预取不会出现空白）
+    var appliedZoom = clamp(s.zoom, 4, 17);
     var center = map.getCenter();
     var scale = 360 / (256 * Math.pow(2, appliedZoom));         // 每像素经度跨度
     var latRad = center.lat * Math.PI / 180;
@@ -87,7 +88,7 @@ var Camera = {
       Math.abs(s.lng - center.lng) / scale,
       Math.abs(s.lat - center.lat) / (scale * Math.max(0.2, Math.cos(latRad)))
     );
-    var zoomChanged = appliedZoom !== Math.round(map.getZoom());
+    var zoomChanged = Math.abs(appliedZoom - map.getZoom()) > 0.012;
     if (!zoomChanged && px < CAMERA.panThresholdPx) return;
 
     map.setView(L.latLng(s.lat, s.lng), appliedZoom, { animate: false });
@@ -99,14 +100,14 @@ var Camera = {
   snapTo: function (center, zoom) {
     this.flying = false;
     var map = App.map;
-    var z = clamp(zoom, 4, 17);
+    var z = clamp(zoom, 4, 17);           // 保留小数：平滑、不跳级
     this.state.lat = center[0];
     this.state.lng = center[1];
     this.state.zoom = z;
     this.target.lat = center[0];
     this.target.lng = center[1];
     this.target.zoom = z;
-    if (map) map.setView(L.latLng(center[0], center[1]), Math.round(z), { animate: false });
+    if (map) map.setView(L.latLng(center[0], center[1]), z, { animate: false });
   },
 
   /** 直接把视图设为目标（带像素阈值），再让 state 吸附 */
@@ -114,10 +115,22 @@ var Camera = {
     this.snapTo(center, zoom);
   },
 
-  /** 单条线路的固定缩放：让整条线路都落在画面内，运行途中不再变化 */
-  lineZoom: function (lengthMeters) {
-    var span = clamp((lengthMeters || 0) * CAMERA.lineFitFactor, CAMERA.minSpan, CAMERA.maxSpan);
-    return this.zoomForSpan(span);
+  /** 用「包围盒 + 留白」求适配缩放（与全览同一套算法，只是留白更小） */
+  fitZoom: function (points, padding) {
+    var map = App.map;
+    if (!map || !points || !points.length) return 11;
+    var bounds = L.latLngBounds(points);
+    if (!bounds.isValid()) return 11;
+    var zoom = map.getBoundsZoom(bounds, false, L.point(padding, padding));
+    return clamp(zoom, 4, 17);
+  },
+
+  /** 单条线路的固定缩放：按该线包围盒取景，整条线路落在画面内 */
+  lineZoom: function (lineIndex) {
+    var line = App.plan && App.plan.lines ? App.plan.lines[lineIndex] : null;
+    var geometry = line && Scene.geometries ? Scene.geometries[line.key] : null;
+    if (!geometry || geometry.render.length < 2) return this.stationZoom();
+    return this.fitZoom(geometry.render, CAMERA.linePadding);
   },
 
   /** 单站开通的固定缩放（特写） */
@@ -165,17 +178,13 @@ var Camera = {
     });
   },
 
-  /** 某一组经纬度点的适配视野（用于全览） */
+  /** 某一组经纬度点的适配视野（用于全览；留白比单线更大，因此一定比单线更远） */
   fitTarget: function (points) {
     var map = App.map;
     if (!map || !points.length) return null;
     var bounds = L.latLngBounds(points);
-    var size = map.getSize();
-    var zoom = Math.min(
-      map.getBoundsZoom(bounds, false, L.point(120, 150)),
-      this.zoomForSpan(L.latLng(bounds.getNorthWest()).distanceTo(L.latLng(bounds.getSouthEast())))
-    );
-    return { center: bounds.getCenter(), zoom: clamp(zoom, 4, 17) };
+    if (!bounds.isValid()) return null;
+    return { center: bounds.getCenter(), zoom: this.fitZoom(points, CAMERA.overviewPadding) };
   },
 
   /** 用户手动缩放/复位：暂停自动跟拍，直到下一个事件 */

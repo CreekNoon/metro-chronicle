@@ -184,10 +184,24 @@ var ZoomUI = {
     });
   },
 
-  /** 播放期间也允许用按钮缩放（禁止的是手势拖拽/滚轮）；手动缩放会暂停自动跟拍 */
+  /** 播放动画期间禁用缩放按钮；空闲/编辑态才可用 */
+  setEnabled: function (enabled) {
+    var on = !!enabled;
+    ['zoomIn', 'zoomOut', 'zoomFit'].forEach(function (id) {
+      var el = document.getElementById(id);
+      if (!el) return;
+      el.disabled = !on;
+      el.classList.toggle('is-disabled', !on);
+    });
+    var ctl = document.getElementById('zoomCtl');
+    if (ctl) ctl.classList.toggle('is-inert', !on);
+  },
+
+  /** 按钮缩放：仅在非播放态可用（播放期间比例由镜头控制） */
   step: function (delta) {
     var map = App.map;
     if (!map) return;
+    if (typeof Story !== 'undefined' && Story.playing) return;
     if (typeof Camera !== 'undefined') {
       Camera.active = false;
       Camera.suspend();
@@ -210,6 +224,7 @@ var ZoomUI = {
   fit: function () {
     var map = App.map;
     if (!map) return;
+    if (typeof Story !== 'undefined' && Story.playing) return;
     if (typeof Camera !== 'undefined') {
       Camera.active = false;
       Camera.suspend();

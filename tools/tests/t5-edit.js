@@ -61,7 +61,9 @@
     document.getElementById('editBtn').click();
     await sleep(400);
     add('进入编辑态', E.active === true && document.body.classList.contains('is-editing'));
-    add('编辑态解锁地图', A.map.dragging.enabled() === true && A.map.scrollWheelZoom.enabled() === true);
+    add('编辑态解锁地图（拖拽可用、滚轮仍禁用）',
+      A.map.dragging.enabled() === true && A.map.scrollWheelZoom.enabled() === false,
+      'dragging=' + A.map.dragging.enabled() + ' wheel=' + A.map.scrollWheelZoom.enabled());
     add('编辑态取消双击缩放', A.map.doubleClickZoom.enabled() === false);
     add('编辑态显示可编辑图层（=去重站数）', Object.keys(E.markers).length === uniqueKeys(),
       Object.keys(E.markers).length + ' vs ' + uniqueKeys());

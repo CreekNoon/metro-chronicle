@@ -13,6 +13,7 @@ var BASEMAP_SOURCES = {
   esriReference: 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Reference/MapServer/tile/{z}/{y}/{x}',
   amapTiles: 'https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}',
   amapProbe: 'https://restapi.amap.com/v3/ip',
+  amapDistrict: 'https://restapi.amap.com/v3/config/district',
   openFreeMapStyle: 'https://tiles.openfreemap.org/styles/positron',
   maplibreScript: 'https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js'
 };
@@ -182,7 +183,7 @@ var Basemap = {
       maxZoom: 19,
       maxNativeZoom: 16,
       crossOrigin: true,
-      keepBuffer: 6,             // 多留一圈瓦片，平移时不易出现空白闪烁
+      keepBuffer: 10,            // 多留几圈瓦片，平移/缩放时不易出现空白
       updateWhenZooming: false,
       pane: 'tilePane'
     });
@@ -190,7 +191,7 @@ var Basemap = {
       maxZoom: 19,
       maxNativeZoom: 16,
       crossOrigin: true,
-      keepBuffer: 6,
+      keepBuffer: 10,
       updateWhenZooming: false,
       pane: 'tilePane'
     });
@@ -226,7 +227,7 @@ var Basemap = {
       maxNativeZoom: 18,
       className: 'basemap-amap',
       crossOrigin: true,
-      keepBuffer: 6,             // 多留一圈瓦片，镜头平移时不易出现空白闪烁
+      keepBuffer: 10,            // 多留几圈瓦片，镜头平移时不易出现空白
       updateWhenZooming: false,
       pane: 'tilePane'
     });
@@ -416,6 +417,43 @@ var Basemap = {
         try { self.vectorMap.resize(); } catch (err) { /* noop */ }
       }
     });
+  },
+
+  /* ------------------------------------------------------- 瓦片预取 */
+
+  /**
+   * 预热瓦片缓存：按给定经纬度范围与缩放层级，把对应瓦片先请求一遍。
+   * 镜头切换前调用，正式进入视野时直接命中浏览器缓存，不再"边转边加载"。
+   */
+  prefetch: function (bounds, levels) {
+    var map = this.map;
+    if (!map || !bounds || !bounds.isValid || !bounds.isValid()) return 0;
+    var layer = this.amapLayer || this.rasterLayers[0];
+    if (!layer || typeof layer.getTileUrl !== 'function') return 0;
+
+    var maxNative = layer.options.maxNativeZoom || 18;
+    var urls = [];
+    (levels || []).forEach(function (level) {
+      var zoom = clamp(Math.round(level), map.getMinZoom(), maxNative);
+      var nw = map.project(bounds.getNorthWest(), zoom).divideBy(256).floor();
+      var se = map.project(bounds.getSouthEast(), zoom).divideBy(256).floor();
+      var count = 0;
+      for (var x = nw.x; x <= se.x && count < 30; x += 1) {
+        for (var y = nw.y; y <= se.y && count < 30; y += 1) {
+          try {
+            urls.push(layer.getTileUrl({ x: x, y: y, z: zoom }));
+          } catch (err) { /* noop */ }
+          count += 1;
+        }
+      }
+    });
+
+    urls.slice(0, 96).forEach(function (url) {
+      var img = new Image();
+      img.decoding = 'async';
+      img.src = url;      // 进 HTTP 缓存；不保留引用
+    });
+    return Math.min(urls.length, 96);
   },
 
   /* -------------------------------------------------------- 状态工具 */

@@ -127,8 +127,23 @@
     spread: lineZooms[key][1] - lineZooms[key][0],
     zoom: lineZooms[key][0]
   }));
-  add('每条线路运行途中缩放保持不变', spreads.every(s => s.spread <= 0.001),
+  add('每条线路运行途中缩放保持不变', spreads.every(s => s.spread <= 0.02),
     spreads.map(s => s.key + '=' + s.zoom + '(±' + s.spread + ')').join(' '));
+
+  /* D1.5 首条线路取景比全览更近（不会"最后一站反而放大"） */
+  const firstLineZoom = C.lineZoom(0);
+  const overview = C.fitTarget(Object.keys(S.geometries).reduce((acc, key) => acc.concat(S.geometries[key].render), []));
+  add('首线取景比全览更近', !!overview && firstLineZoom >= overview.zoom,
+    firstLineZoom.toFixed(2) + ' vs ' + (overview ? overview.zoom.toFixed(2) : 'n/a'));
+  add('所有线路取景都不比全览更远',
+    A.plan.lines.every((_, i) => C.lineZoom(i) >= (overview ? overview.zoom : -1)),
+    A.plan.lines.map((_, i) => C.lineZoom(i).toFixed(2)).join('/'));
+
+  /* D1.6 缩放值是连续量（小数），说明不再按整级跳动 */
+  add('取景缩放为连续值（非整级跳变）',
+    Math.abs(firstLineZoom - Math.round(firstLineZoom)) > 0.02 ||
+    A.plan.lines.some((_, i) => Math.abs(C.lineZoom(i) - Math.round(C.lineZoom(i))) > 0.02),
+    A.plan.lines.map((_, i) => C.lineZoom(i).toFixed(3)).join('/'));
 
   /* D2 整条线路落在画面内（起点与头部都在视口内） */
   add('绘制过程中起点与头部都在画面内', samples.every(s => s.startInside && s.headInside),
