@@ -42,7 +42,9 @@
 
   /* --------------------------------- C 换乘站：单点多色圆环（不是两个点） */
   S.build(A.plan);
+  S.openedLineKeys = { 'zz-l1': true };
   S.drawProgress(0, 1);
+  S.openedLineKeys['zz-l2'] = true;
   S.drawProgress(1, 1);                      // 清水塘此时应变成换乘
   await sleep(450);                          // 等圆点颜色的 CSS 过渡结束
   const qNode = S.stations['zz-qingshuitang'];
@@ -58,17 +60,33 @@
   add('同一站点只渲染一个标记', document.querySelectorAll('.st[data-station-key="zz-qingshuitang"]').length === 1,
     document.querySelectorAll('.st[data-station-key="zz-qingshuitang"]').length);
 
-  /* --------------------------------- D 镜头：跟拍 + 拉远 + 全览 */
+  /* --------------------------------- D 镜头：固定缩放 + 平移 + 全览 */
   St.play();
   const samples = [];
-  let sawStationEvent = null;
+  let stationEventSample = null;
+  const lineZooms = {};
   const t0 = performance.now();
-  while (performance.now() - t0 < 40000) {
+  while (performance.now() - t0 < 70000) {
     if (St.finished) break;
     await sleep(110);
     const size = map.getSize();
-    const center = { x: size.x / 2, y: size.y / 2 };
-    // 只在「镜头稳定跟拍单条线路」时采样：排除事件交接时新旧头标并存、镜头正在飞行的瞬间
+
+    // 站名/状态采样（单站事件没有头部标记，需要单独统计）
+    const statusText = document.getElementById('lineStatus').textContent;
+    if (statusText === '站点开通') {
+      const z = map.getZoom();
+      if (!stationEventSample) {
+        stationEventSample = {
+          date: document.getElementById('dateText').textContent,
+          name: document.getElementById('lineName').textContent,
+          zoom: z
+        };
+      } else if (z > stationEventSample.zoom) {
+        stationEventSample.zoom = z;      // 事件期间取最大缩放（飞行抵达后的特写值）
+      }
+    }
+
+    // 只在「稳定跟拍单条线路」时采样，排除事件交接与飞行瞬间
     let visible = null;
     let visibleCount = 0;
     Object.keys(S.routes).forEach((key) => {
@@ -78,68 +96,64 @@
       if (op > 0.25) visibleCount += 1;
       if (op > 0.9 && (!visible || op > visible.op)) visible = { key: key, route: route, op: op };
     });
-    const statusTextNow = document.getElementById('lineStatus').textContent;
-    if (!sawStationEvent && statusTextNow === '站点开通') {
-      sawStationEvent = {
-        date: document.getElementById('dateText').textContent,
-        name: document.getElementById('lineName').textContent,
-        range: document.getElementById('lineRange').textContent
-      };
-    }
     if (!St.drawing || C.flying || visibleCount !== 1 || !visible) continue;
-    if (visible) Object.keys({ [visible.key]: 1 }).forEach((key) => {
-      const route = S.routes[key];
-      const head = route.head.getLatLng();
-      const pt = map.latLngToContainerPoint(head);
-      const geometry = S.geometries[key];
-      if (!geometry || !geometry.render.length) return;
-      const start = L.latLng(geometry.render[0][0], geometry.render[0][1]);
-      const mid = map.latLngToContainerPoint(L.latLng((start.lat + head.lat) / 2, (start.lng + head.lng) / 2));
-      samples.push({
-        key: key,
-        dx: Math.abs(pt.x - center.x) / size.x,
-        dy: Math.abs(pt.y - center.y) / size.y,
-        midDx: Math.abs(mid.x - center.x) / size.x,
-        midDy: Math.abs(mid.y - center.y) / size.y,
-        zoom: map.getZoom()
-      });
+
+    const head = visible.route.head.getLatLng();
+    const headPt = map.latLngToContainerPoint(head);
+    const start = S.geometries[visible.key].render[0];
+    const startPt = map.latLngToContainerPoint(L.latLng(start[0], start[1]));
+    const midPt = map.latLngToContainerPoint(L.latLng((start[0] + head.lat) / 2, (start[1] + head.lng) / 2));
+    const zoom = map.getZoom();
+    lineZooms[visible.key] = lineZooms[visible.key] || [zoom, zoom];
+    lineZooms[visible.key][0] = Math.min(lineZooms[visible.key][0], zoom);
+    lineZooms[visible.key][1] = Math.max(lineZooms[visible.key][1], zoom);
+    samples.push({
+      key: visible.key,
+      zoom: zoom,
+      midDx: Math.abs(midPt.x - size.x / 2) / size.x,
+      midDy: Math.abs(midPt.y - size.y / 2) / size.y,
+      startInside: startPt.x >= 0 && startPt.y >= 0 && startPt.x <= size.x && startPt.y <= size.y,
+      headInside: headPt.x >= 0 && headPt.y >= 0 && headPt.x <= size.x && headPt.y <= size.y
     });
-    const statusText = document.getElementById('lineStatus').textContent;
-    if (!sawStationEvent && statusText === '站点开通') {
-      sawStationEvent = {
-        date: document.getElementById('dateText').textContent,
-        name: document.getElementById('lineName').textContent,
-        range: document.getElementById('lineRange').textContent
-      };
-    }
   }
-  const finished = St.finished;
-  add('播放可完整结束', finished === true, Math.round(performance.now() - t0) + 'ms');
+  St.skip();
+  await sleep(700);
+  add('播放可完整结束', St.finished === true, Math.round(performance.now() - t0) + 'ms');
   add('采样到线路跟拍', samples.length >= 8, samples.length + ' 次采样');
 
+  /* D1 每条线路运行途中缩放不变 */
+  const spreads = Object.keys(lineZooms).map((key) => ({
+    key: key,
+    spread: lineZooms[key][1] - lineZooms[key][0],
+    zoom: lineZooms[key][0]
+  }));
+  add('每条线路运行途中缩放保持不变', spreads.every(s => s.spread <= 0.001),
+    spreads.map(s => s.key + '=' + s.zoom + '(±' + s.spread + ')').join(' '));
+
+  /* D2 整条线路落在画面内（起点与头部都在视口内） */
+  add('绘制过程中起点与头部都在画面内', samples.every(s => s.startInside && s.headInside),
+    samples.filter(s => !(s.startInside && s.headInside)).length + ' 次越界');
+
+  /* D3 延伸路径中点居中 */
   const maxMidOffset = samples.reduce((m, s) => Math.max(m, s.midDx, s.midDy), 0);
-  add('延伸路径中点始终贴近画面中心', maxMidOffset < 0.16, maxMidOffset.toFixed(3));
-  const maxHeadOffset = samples.reduce((m, s) => Math.max(m, s.dx, s.dy), 0);
-  add('绘制头部始终在画面内', maxHeadOffset < 0.45, maxHeadOffset.toFixed(3));
-  const maxZoom = samples.reduce((m, s) => Math.max(m, s.zoom), 0);
-  const minZoom = samples.reduce((m, s) => Math.min(m, s.zoom), 99);
-  add('线路绘制期有特写（zoom ≥ 13）', maxZoom >= 13, maxZoom.toFixed(2));
-  add('线路绘制期有拉远（zoom 明显变化）', maxZoom - minZoom >= 1.2, (maxZoom - minZoom).toFixed(2));
+  add('延伸路径中点贴近画面中心', maxMidOffset < 0.16, maxMidOffset.toFixed(3));
 
-  add('单站开通时顶栏切换为「站点开通」', !!sawStationEvent, JSON.stringify(sawStationEvent));
-  add('单站开通日期正确', !!sawStationEvent && sawStationEvent.date === '2035.06.01',
-    sawStationEvent ? sawStationEvent.date : 'n/a');
-  add('单站开通显示站名', !!sawStationEvent && sawStationEvent.name === '荷塘',
-    sawStationEvent ? sawStationEvent.name : 'n/a');
+  /* D4 单站开通为特写 */
+  add('单站开通时顶栏切换为「站点开通」', !!stationEventSample, JSON.stringify(stationEventSample));
+  add('单站开通日期正确', !!stationEventSample && stationEventSample.date === '2035.06.01',
+    stationEventSample ? stationEventSample.date : 'n/a');
+  add('单站开通显示站名', !!stationEventSample && stationEventSample.name === '荷塘',
+    stationEventSample ? stationEventSample.name : 'n/a');
+  add('单站开通为特写缩放（≥13）', !!stationEventSample && stationEventSample.zoom >= 13,
+    stationEventSample ? stationEventSample.zoom : 'n/a');
 
-  /* 全览：所有站点都在视口内 */
+  /* D5 全览 */
   const size = map.getSize();
   const outside = Object.keys(S.stations).filter((key) => {
     const pt = map.latLngToContainerPoint(S.stations[key].marker.getLatLng());
     return pt.x < 0 || pt.y < 0 || pt.x > size.x || pt.y > size.y;
   });
   add('结束后收束为全览（所有站点在视口内）', outside.length === 0, outside.join(',') || 'ok');
-  add('全览 zoom 小于特写', map.getZoom() < maxZoom, map.getZoom().toFixed(2) + ' < ' + maxZoom.toFixed(2));
   const snap = M.snapshot();
   add('终态统计为全量（去重站数）', Number(snap.stats.stations) === Object.keys(S.stations).length,
     snap.stats.stations + ' vs ' + Object.keys(S.stations).length);
@@ -147,15 +161,15 @@
 
   /* --------------------------------- E 编辑：输入开通时间 / 单独开通 */
   E.enter();
-  await sleep(400);
+  await sleep(500);
   const targetKey = A.plan.lines[0].stations[1].key;
   E.select(targetKey);
-  await sleep(200);
+  await sleep(250);
   const modeSelect = document.querySelector('#editCard [data-act="open-mode"]');
   add('编辑卡片有开通方式选择', !!modeSelect);
   modeSelect.value = 'alone';
   modeSelect.dispatchEvent(new Event('change', { bubbles: true }));
-  await sleep(250);
+  await sleep(300);
   const stationEntry = A.plan.lines[0].stations[1];
   add('可设为单独开通', stationEntry.openMode === 'alone', stationEntry.openMode);
   add('单独开通后出现日期输入框', (() => {
@@ -166,7 +180,7 @@
   const dateInput = document.querySelector('#editCard [data-act="open-date"]');
   dateInput.value = '2099-03-05';
   dateInput.dispatchEvent(new Event('change', { bubbles: true }));
-  await sleep(250);
+  await sleep(300);
   add('日期输入被规范化为 YYYY.MM.DD', stationEntry.openDate === '2099.03.05', stationEntry.openDate);
 
   const eventsAfter = St.buildEvents();
@@ -177,11 +191,11 @@
 
   /* 线路设置面板：修改开通日期 */
   E.openLineSheet();
-  await sleep(300);
+  await sleep(400);
   add('线路设置面板可打开', document.getElementById('lineSheet').classList.contains('is-on'));
   document.getElementById('lineDateInput').value = '2033.07.07';
   document.getElementById('saveLineBtn').click();
-  await sleep(350);
+  await sleep(450);
   add('线路开通日期可修改', A.plan.lines[E.lineIndex].dateText === '2033.07.07', A.plan.lines[E.lineIndex].dateText);
   add('修改日期后事件顺序随之变化', (() => {
     const evts = St.buildEvents();

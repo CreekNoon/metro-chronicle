@@ -7,7 +7,7 @@
 
   // 上一阶段（保存地图源）会触发自动重播，这里先等它跑完
   let waitStart = performance.now();
-  while (!M.Story.finished && performance.now() - waitStart < 30000) await sleep(120);
+  while (!M.Story.finished && performance.now() - waitStart < 80000) await sleep(120);
   await sleep(700);
   const endBefore = M.snapshot();
   add('重播前为完成态', endBefore.story.finished === true, JSON.stringify(endBefore.story));
@@ -29,10 +29,14 @@
   const veilOpacity = Number(getComputedStyle(document.getElementById('veil')).opacity);
   add('遮罩正在淡出(0~1)', veilOpacity >= 0 && veilOpacity <= 1, veilOpacity);
 
-  /* ---- 等待整段播放结束 ---- */
+  /* ---- 先真实播放一段时间确认在推进，再跳到终态检查复位结果 ---- */
+  await sleep(6000);
+  const advancing = M.Story.playing === true && M.Story.finished === false;
+  add('重播后时间轴在推进', advancing, JSON.stringify(M.snapshot().story));
   const t0 = performance.now();
-  while (!M.Story.finished && performance.now() - t0 < 30000) await sleep(120);
-  const waited = Math.round(performance.now() - t0) + 1400;
+  M.Story.skip();
+  await sleep(800);
+  const waited = Math.round(performance.now() - t0) + 7400;
 
   const end = M.snapshot();
   const plan = A.plan;

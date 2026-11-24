@@ -149,7 +149,6 @@ var Scene = {
     var marker = createStationMarker(station, line, {
       state: 'hidden',
       numberText: formatStationNumber(stationIndex + 1),
-      ringStyle: ringStyleVars(this.plan, station.key),
       hasRail: railFlags.hasRail,
       isRailOnly: railFlags.isRailOnly
     });
@@ -214,22 +213,50 @@ var Scene = {
       // 单独开通的站点由自己的事件点亮，不在画线时提前出现
       if (station.openMode === 'alone') continue;
       var numberText = formatStationNumber(i + 1);
-      var crossLine = node.lineKey !== line.key;
 
-      if (crossLine) {
-        if (node.state === 'transfer') continue;
-        if (node.state === 'hidden') {
-          this.revealStation(station.key, 'transfer', numberText, i);
-        } else {
-          this.animateGhostToTransfer(station.key, numberText);
-        }
-        continue;
+      if (!node.revealed) {
+        this.revealStation(station.key, station.ghost ? 'ghost' : 'opened', numberText, i);
       }
-
-      if (node.revealed) continue;
-      this.revealStation(station.key, station.ghost ? 'ghost' : 'opened', numberText, i);
+      // 已开通线路 ≥ 2 条才升级为换乘站；多于 2 条时颜色数随之增加
+      this.refreshInterchange(station.key, numberText);
     }
     return headPoint;
+  },
+
+  /** 该站当前「已开通线路」的颜色列表（按 plan 顺序去重） */
+  openedColorsFor: function (node) {
+    var opened = this.openedLineKeys || {};
+    var colors = [];
+    (this.plan ? this.plan.lines : []).forEach(function (line) {
+      if (!opened[line.key]) return;
+      if (!node || node.lineKeys.indexOf(line.key) < 0) return;
+      if (colors.indexOf(line.color) < 0) colors.push(line.color);
+    });
+    return colors;
+  },
+
+  /**
+   * 换乘站配色渐进：
+   * - 只有一条线路开通：保持单线颜色（一个色）
+   * - 两条开通：双色圆环
+   * - 第三条接入：才变成三色圆环
+   */
+  refreshInterchange: function (stationKey, numberText) {
+    var node = this.stations[stationKey];
+    if (!node || !node.refs || !node.refs.st) return;
+    var colors = this.openedColorsFor(node);
+    var label = numberText || (node.refs.number ? node.refs.number.textContent : '');
+
+    if (colors.length >= 2) {
+      var gradient = conicRingGradient(colors);
+      if (gradient) node.refs.st.style.setProperty('--ring-gradient', gradient);
+      if (node.state !== 'transfer') this.animateGhostToTransfer(stationKey, label);
+      return;
+    }
+
+    // 未构成换乘：回到单线配色
+    node.refs.st.style.removeProperty('--ring-gradient');
+    if (node.state === 'transfer') applyStationState(node, node.station.ghost ? 'ghost' : 'opened', label);
   },
 
   /** 点亮站点：halo → ring → dot → label 依次入场（halo 保持克制的低透明度） */
@@ -317,7 +344,9 @@ var Scene = {
     var sharedOpened = node.lineKeys.filter(function (key) { return openedLines[key]; }).length;
     var mode = node.station.ghost ? 'ghost' : (node.lineKeys.length > 1 && sharedOpened >= 2 ? 'transfer' : 'opened');
     var numberText = formatStationNumber((node.occurrences[0] ? node.occurrences[0].stationIndex : 0) + 1);
-    return this.revealStation(stationKey, mode, numberText, node.occurrences[0] ? node.occurrences[0].stationIndex : 0);
+    var revealed = this.revealStation(stationKey, mode, numberText, node.occurrences[0] ? node.occurrences[0].stationIndex : 0);
+    this.refreshInterchange(stationKey, numberText);
+    return revealed;
   },
 
   setHeadVisible: function (lineIndex, visible) {

@@ -6,16 +6,16 @@
    ========================================================================== */
 
 var STORY_TIMING = {
-  intro: 1.0,            // 遮罩淡出 + HUD 依次上浮
-  travel: 1.35,          // 事件之间的镜头飞行（放慢，避免"赶"）
-  lineBase: 1.1,         // 整线绘制的基础时长
-  linePerStation: 0.42,  // 每多一站增加的绘制时长
-  lineMin: 2.8,
-  lineMax: 6.4,
-  gap: 0.15,             // 一条线画完到下一个事件之间的呼吸
-  stationHold: 1.5,      // 单站开通的停留
-  dateFlip: 0.6,         // 日期翻页耗时（与镜头飞行重叠）
-  outro: 1.7             // 收束到全览
+  intro: 2.0,            // 遮罩淡出 + HUD 依次上浮（整体 0.5× 速度）
+  travel: 2.7,           // 事件之间的镜头飞行
+  lineBase: 2.2,         // 整线绘制的基础时长
+  linePerStation: 0.84,  // 每多一站增加的绘制时长
+  lineMin: 5.6,
+  lineMax: 12.8,
+  gap: 0.3,              // 一条线画完到下一个事件之间的呼吸
+  stationHold: 3.0,      // 单站开通的停留
+  dateFlip: 1.2,         // 日期翻页耗时（与镜头飞行重叠）
+  outro: 3.4             // 收束到全览
 };
 
 /** 单条线路的绘制时长：站越多画得越久，但控制在可接受区间 */
@@ -184,7 +184,8 @@ var Story = {
 
       /* --- 镜头飞行到事件起点 --- */
       var startPoint = isLine ? self.lineStartPoint(event.lineIndex) : self.stationPoint(event.stationKey);
-      var targetZoom = isLine ? Camera.zoomForSpan(CAMERA.minSpan * 1.25) : Camera.zoomForSpan(1100);
+      // 整线：用「整条线路刚好落在画面内」的固定缩放；单站：固定特写缩放
+      var targetZoom = isLine ? Camera.lineZoom(self.lineLength(event.lineIndex)) : Camera.stationZoom();
       var travelAt = cursor + (index > 0 ? 0.14 : 0);
       tl.call(function () {
         Camera.flyTo(startPoint, targetZoom, {
@@ -209,7 +210,8 @@ var Story = {
           ease: 'none',
           onUpdate: function () {
             var head = Scene.drawProgress(event.lineIndex, slot.value);
-            if (head) Camera.frameSpan(startPoint, head, CAMERA.spanFactor);
+            // 只平移：缩放保持 targetZoom 不变（一条线路内不改缩放）
+            if (head) Camera.panTo([(startPoint[0] + head[0]) / 2, (startPoint[1] + head[1]) / 2]);
             self.syncRevealedStats();
           }
         }, landAt);
@@ -219,9 +221,7 @@ var Story = {
         }, null, landAt + duration + 0.05);
         cursor = landAt + duration + timing.gap;
       } else {
-        /* --- 单站开通：只点亮一个点，并做一次缓慢推近 --- */
-        var station = self.findStation(event.stationKey);
-        var pushZoom = targetZoom + 0.45;
+        /* --- 单站开通：只点亮一个点（固定特写缩放，不再推近） --- */
         tl.call(function () {
           Camera.snapTo(startPoint, targetZoom);
           self.beginStation(event);
@@ -229,9 +229,6 @@ var Story = {
           self.syncRevealedStats();
           self.applyHeader(event);
         }, null, landAt);
-        tl.call(function () {
-          Camera.flyTo(startPoint, pushZoom, { duration: timing.stationHold - 0.15, dip: 0 });
-        }, null, landAt + 0.05);
         cursor = landAt + timing.stationHold + timing.gap;
       }
     });
@@ -363,6 +360,13 @@ var Story = {
     var geometry = line ? Scene.geometries[line.key] : null;
     if (!geometry || !geometry.render.length) return [App.map.getCenter().lat, App.map.getCenter().lng];
     return geometry.render[0];
+  },
+
+  /** 线路实际长度（米）：决定该线路的固定取景缩放 */
+  lineLength: function (lineIndex) {
+    var line = App.plan.lines[lineIndex];
+    var geometry = line ? Scene.geometries[line.key] : null;
+    return geometry && isFiniteNumber(geometry.totalMeters) ? geometry.totalMeters : 0;
   },
 
   stationPoint: function (stationKey) {

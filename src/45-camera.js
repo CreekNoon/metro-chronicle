@@ -7,14 +7,15 @@
    ========================================================================== */
 
 var CAMERA = {
-  minSpan: 2600,          // 最小视野跨度（米）：特写也能看清相邻两站
+  minSpan: 2600,          // 最小视野跨度（米）
   maxSpan: 60000,         // 最大视野跨度（米）：足够容下最长线路（城际 32km）
-  spanFactor: 1.75,       // 视野跨度 = 已延伸距离 × 该系数
-  zoomStep: 0.75,         // 目标 zoom 与当前差超过该值才换级（滞回，避免边界抖动）
-  lerpCenter: 0.12,       // 每帧向目标中心插值比例（越小越"稳"）
-  lerpZoom: 0.12,         // 每帧向目标 zoom 插值比例
+  lineFitFactor: 1.18,    // 单条线路的固定取景跨度 = 线路长度 × 该系数（整线落在画面内）
+  stationSpan: 1800,      // 单站开通的取景跨度（特写）
+  zoomStep: 0.75,         // 换级滞回：只在事件之间换级，线路运行途中不改缩放
+  lerpCenter: 0.16,       // 每帧向目标中心插值比例
+  lerpZoom: 0.14,         // 每帧向目标 zoom 插值比例
   panThresholdPx: 3,      // 中心变化超过该像素才重设视野
-  flight: 1.35            // 事件之间飞行时长
+  flight: 2.7             // 事件之间飞行时长（整体 0.5× 速度）
 };
 
 var Camera = {
@@ -113,25 +114,25 @@ var Camera = {
     this.snapTo(center, zoom);
   },
 
-  /**
-   * 跟拍「起点 → 头部」这一段：
-   * 中心取两者中点，zoom 由跨度反推；带滞回，只有差距够大才换级。
-   */
-  frameSpan: function (startPoint, headPoint, factor) {
-    if (!App.map || Edit.active || this.suspended) return;
-    if (!startPoint || !headPoint) return;
-    var start = L.latLng(startPoint[0], startPoint[1]);
-    var head = L.latLng(headPoint[0], headPoint[1]);
-    var distance = start.distanceTo(head);
-    var span = clamp(distance * (factor || CAMERA.spanFactor), CAMERA.minSpan, CAMERA.maxSpan);
-    var zoom = this.zoomForSpan(span);
+  /** 单条线路的固定缩放：让整条线路都落在画面内，运行途中不再变化 */
+  lineZoom: function (lengthMeters) {
+    var span = clamp((lengthMeters || 0) * CAMERA.lineFitFactor, CAMERA.minSpan, CAMERA.maxSpan);
+    return this.zoomForSpan(span);
+  },
 
-    this.target.lat = (start.lat + head.lat) / 2;
-    this.target.lng = (start.lng + head.lng) / 2;
-    // 需要拉远时必须立刻跟上（否则延伸路径会冲出画面）；
-    // 需要推近时才用滞回，避免层级来回抖
-    if (zoom < this.target.zoom - 0.05) this.target.zoom = zoom;
-    else if (zoom > this.target.zoom + CAMERA.zoomStep) this.target.zoom = zoom;
+  /** 单站开通的固定缩放（特写） */
+  stationZoom: function () {
+    return this.zoomForSpan(CAMERA.stationSpan);
+  },
+
+  /**
+   * 只平移、不改缩放：一条线路运行途中始终保持同一个缩放比例。
+   * center 取「起点 → 头部」的中点，于是延伸中的线路始终横在画面中央。
+   */
+  panTo: function (centerPoint) {
+    if (!App.map || Edit.active || this.suspended || !centerPoint) return;
+    this.target.lat = centerPoint[0];
+    this.target.lng = centerPoint[1];
   },
 
   /** 直接飞到某个视野（弧线：平移同时先拉远再推近） */
