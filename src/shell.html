@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="color-scheme" content="light" />
+<meta name="description" content="城市地铁线网开通纪事：单文件离线可视化，支持多线路、城际铁路、城市切换与线网编辑" />
+<!-- 内联空图标：避免浏览器自动请求 /favicon.ico 产生 404 -->
+<link rel="icon" href="data:," />
+<title>城市地铁线网开通纪事</title>
+<style>/*__LEAFLET_CSS__*/</style>
+<style>/*__APP_CSS__*/</style>
+</head>
+<body>
+<div id="app">
+
+  <!-- 地图容器 -->
+  <div id="map" class="map"></div>
+  <!-- 开场遮罩：底图决策完成后淡出 -->
+  <div id="veil" class="veil"></div>
+
+  <!-- 左上：时间胶囊 + 线路头 -->
+  <header class="hud hud-tl">
+    <div class="time-capsule" id="timeCapsule">
+      <span class="date-text" id="dateText">2030.06.28</span>
+    </div>
+    <div class="line-head" id="lineHead">
+      <span class="line-badge" id="lineBadge">1</span>
+      <span class="line-meta">
+        <span class="line-name" id="lineName">1 号线</span>
+        <span class="line-range" id="lineRange">云龙—株洲西站</span>
+      </span>
+      <span class="line-status" id="lineStatus">试运行</span>
+    </div>
+  </header>
+
+  <!-- 左侧：数据面板（数值全部由数据实时计算） -->
+  <aside class="hud stats" id="stats" aria-label="线网数据">
+    <div class="stat">
+      <span class="stat-label">线路</span>
+      <span class="stat-value"><b id="statLines" data-value="1">1</b><i>条</i></span>
+    </div>
+    <div class="stat">
+      <span class="stat-label">站点</span>
+      <span class="stat-value"><b id="statStations" data-value="6">6</b><i>座</i></span>
+    </div>
+    <div class="stat">
+      <span class="stat-label">里程</span>
+      <span class="stat-value"><em>约</em><b id="statKm" data-value="30">30</b><i>km</i></span>
+    </div>
+  </aside>
+
+  <!-- 右上：城市选择 / 线路多选 / 编辑入口 / 地图设置 -->
+  <div class="hud controls" id="controls">
+    <select class="ctl ctl-select" id="citySelect" aria-label="切换城市"></select>
+    <button class="ctl ctl-lines" id="lineSelectBtn" type="button" aria-expanded="false" aria-controls="linePanel">
+      线路<span class="ctl-count" id="lineSelectCount">0/0</span>
+    </button>
+    <button class="ctl" id="editBtn" type="button">编辑线网</button>
+    <button class="ctl ctl-icon" id="settingsBtn" type="button" aria-label="地图源设置" title="地图源设置">
+      <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true">
+        <path d="M4 7.5h9.2M18.4 7.5H20M4 16.5h3.2M12.4 16.5H20" />
+        <circle cx="15.8" cy="7.5" r="2.3" />
+        <circle cx="9.8" cy="16.5" r="2.3" />
+      </svg>
+    </button>
+  </div>
+
+  <!-- 线路多选面板 -->
+  <div class="line-panel hud" id="linePanel" role="dialog" aria-label="选择参与播放的线路">
+    <div class="line-panel-head">
+      <span>参与播放的线路</span>
+      <span class="line-panel-actions">
+        <button type="button" id="lineSelectAll">全选</button>
+        <button type="button" id="lineSelectNone">仅留一条</button>
+      </span>
+    </div>
+    <div class="line-panel-body" id="linePanelBody"></div>
+    <p class="line-panel-tip">勾选后重新播放；未勾选的线路不参与动画与统计。</p>
+  </div>
+
+  <!-- 右侧：缩放控件（播放期间也可用按钮缩放） -->
+  <div class="hud zoom-ctl" id="zoomCtl" role="group" aria-label="地图缩放">
+    <button type="button" id="zoomIn" aria-label="放大">＋</button>
+    <span class="zoom-divider"></span>
+    <button type="button" id="zoomOut" aria-label="缩小">－</button>
+    <span class="zoom-divider"></span>
+    <button type="button" id="zoomFit" aria-label="复位视野" title="复位视野">
+      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M4 9V5.6A1.6 1.6 0 0 1 5.6 4H9M15 4h3.4A1.6 1.6 0 0 1 20 5.6V9M20 15v3.4A1.6 1.6 0 0 1 18.4 20H15M9 20H5.6A1.6 1.6 0 0 1 4 18.4V15" />
+      </svg>
+    </button>
+    <span class="zoom-level" id="zoomLevel"></span>
+  </div>
+
+  <!-- 左下：重播 / 跳过 -->
+  <div class="hud playback" id="playback">
+    <button class="replay" id="replayBtn" type="button">重播</button>
+    <button class="skip" id="skipBtn" type="button">跳过动画</button>
+  </div>
+
+  <!-- 右下：版权与数据说明（底图来源随实际地图源变化） -->
+  <div class="hud credit" id="credit">
+    <strong id="creditCity">株洲 · 地铁线网开通纪事</strong>
+    <span id="creditSource">底图 © Esri · 数据为虚构演示</span>
+  </div>
+
+  <!-- 编辑态：底部工具条 + 站点编辑卡片（内容由 JS 渲染） -->
+  <div class="edit-bar" id="editBar"></div>
+  <div class="edit-card" id="editCard"></div>
+
+  <!-- 地图源设置面板 -->
+  <div class="sheet" id="settingsSheet" aria-hidden="true" role="dialog" aria-modal="true" aria-label="地图源设置">
+    <div class="sheet-panel">
+      <div class="sheet-head">
+        <h2>地图设置</h2>
+        <button class="sheet-close" type="button" data-close="settingsSheet" aria-label="关闭">×</button>
+      </div>
+      <p class="sheet-desc">
+        默认链路：高德（配置 Key）→ OpenFreeMap 矢量瓦片 → Esri 灰度栅格。任一环节失败都会静默降级，不影响开场与动画。
+        高德模式会自动做 WGS84 → GCJ-02 投影对齐，编辑与保存仍使用 WGS84。
+      </p>
+      <label class="sheet-field">
+        <span>高德开发者 Key</span>
+        <input id="amapKeyInput" type="text" spellcheck="false" autocomplete="off" placeholder="32 位 Key，留空使用默认底图" />
+      </label>
+      <p class="sheet-status" id="amapKeyStatus"></p>
+      <p class="sheet-status" id="basemapStatus"></p>
+      <p class="sheet-status" id="storageStatus"></p>
+      <div class="sheet-actions">
+        <button class="btn-danger-plain" type="button" id="clearAmapKey">清除 Key 并恢复默认底图</button>
+        <button class="btn-plain" type="button" data-close="settingsSheet">取消</button>
+        <button class="btn-primary" type="button" id="saveAmapKey">保存并应用</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 自定义城市面板 -->
+  <div class="sheet" id="citySheet" aria-hidden="true" role="dialog" aria-modal="true" aria-label="自定义城市">
+    <div class="sheet-panel">
+      <div class="sheet-head">
+        <h2>自定义城市</h2>
+        <button class="sheet-close" type="button" data-close="citySheet" aria-label="关闭">×</button>
+      </div>
+      <p class="sheet-desc">生成一份空白线网（默认两条地铁 + 一条城际），随后在地图上点选站点。方案会按城市单独保存。</p>
+      <label class="sheet-field">
+        <span>城市名</span>
+        <input id="customCityName" type="text" maxlength="24" spellcheck="false" placeholder="例如：衡阳" />
+      </label>
+      <div class="sheet-row">
+        <label class="sheet-field">
+          <span>中心纬度</span>
+          <input id="customCityLat" type="text" inputmode="decimal" spellcheck="false" />
+        </label>
+        <label class="sheet-field">
+          <span>中心经度</span>
+          <input id="customCityLng" type="text" inputmode="decimal" spellcheck="false" />
+        </label>
+      </div>
+      <button class="btn-link" type="button" id="useMapCenter">使用当前地图中心坐标</button>
+      <div class="sheet-actions">
+        <button class="btn-plain" type="button" data-close="citySheet">取消</button>
+        <button class="btn-primary" type="button" id="createCity">生成空白线网</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 轻提示 -->
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+</div>
+
+<script>/*__LEAFLET_JS__*/</script>
+<script>/*__GSAP_JS__*/</script>
+<script>/*__APP_JS__*/</script>
+</body>
+</html>

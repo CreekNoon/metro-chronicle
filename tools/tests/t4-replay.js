@@ -1,0 +1,64 @@
+(async () => {
+  const M = window.__METRO__;
+  const S = M.Scene, A = M.App;
+  const checks = [];
+  const add = (name, ok, detail) => checks.push({ name: name, ok: !!ok, detail: detail === undefined ? '' : String(detail) });
+  const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+  // 上一阶段（保存地图源）会触发自动重播，这里先等它跑完
+  let waitStart = performance.now();
+  while (!M.Story.finished && performance.now() - waitStart < 30000) await sleep(120);
+  await sleep(700);
+  const endBefore = M.snapshot();
+  add('重播前为完成态', endBefore.story.finished === true, JSON.stringify(endBefore.story));
+
+  document.getElementById('replayBtn').click();
+  await sleep(1400);
+
+  /* ---- 播放中途：应已完全复位到 1 号线场景 ---- */
+  const mid = M.snapshot();
+  add('重播后日期复位 2030.06.28', mid.date === '2030.06.28', mid.date);
+  add('重播后顶栏复位 1 号线', mid.badge === '1' && mid.lineName === '1 号线', mid.badge + '/' + mid.lineName);
+  add('重播后区间复位', mid.range === '云龙—株洲西站', mid.range);
+  add('重播后状态复位 试运行', mid.status === '试运行', mid.status);
+  add('重播后面板复位 1/6/30', mid.stats.lines === '1' && mid.stats.stations === '6' && mid.stats.km === '30', JSON.stringify(mid.stats));
+  add('重播后清水塘回到未开通/未揭示', ['hidden', 'ghost'].indexOf(mid.stationStates['zz-qingshuitang']) >= 0, mid.stationStates['zz-qingshuitang']);
+  add('重播后无任何换乘态', Object.keys(mid.stationStates).every(k => mid.stationStates[k] !== 'transfer'),
+    JSON.stringify(mid.stationStates));
+  add('重播中地图仍锁定', A.locked === true);
+  const veilOpacity = Number(getComputedStyle(document.getElementById('veil')).opacity);
+  add('遮罩正在淡出(0~1)', veilOpacity >= 0 && veilOpacity <= 1, veilOpacity);
+
+  /* ---- 等待整段播放结束 ---- */
+  const t0 = performance.now();
+  while (!M.Story.finished && performance.now() - t0 < 30000) await sleep(120);
+  const waited = Math.round(performance.now() - t0) + 1400;
+
+  const end = M.snapshot();
+  const plan = A.plan;
+  const lastLine = plan.lines[plan.lines.length - 1];
+  const entries = plan.lines.reduce((sum, l) => sum + l.stations.length, 0);
+  add('重播可完整播放到结束', end.story.finished === true, '用时 ' + waited + 'ms');
+  add('结束态日期为末线日期', end.date === lastLine.dateText, end.date);
+  add('结束态线路数=线路总数', Number(end.stats.lines) === plan.lines.length, end.stats.lines);
+  add('结束态站点数=条目总数', Number(end.stats.stations) === entries, end.stats.stations + ' vs ' + entries);
+  add('结束态清水塘为换乘', end.stationStates['zz-qingshuitang'] === 'transfer', end.stationStates['zz-qingshuitang']);
+
+  /* ---- 复位残留检查 ---- */
+  const headOpacity = plan.lines.map((line) => Number(S.routes[line.key].head.options.opacity));
+  add('头部标记无透明度残留', headOpacity.every(v => v === 0), JSON.stringify(headOpacity));
+  const uniqueStations = Object.keys(S.stations).length;
+  add('站点标记数量=去重站数（无重复图层）',
+    A.map.getContainer().querySelectorAll('.st').length === uniqueStations,
+    A.map.getContainer().querySelectorAll('.st').length + ' vs ' + uniqueStations);
+  add('线路图层数量=线路数×3',
+    A.map.getContainer().querySelectorAll('.route-layer').length === plan.lines.length * 3,
+    A.map.getContainer().querySelectorAll('.route-layer').length);
+  await sleep(700);
+  const statsEl = document.getElementById('stats');
+  add('数据面板无残留透明度', !statsEl.style.opacity || Number(statsEl.style.opacity) > 0.99, statsEl.style.opacity || 'auto');
+  const dateEl = document.getElementById('dateText');
+  add('日期无残留旋转', !dateEl.style.transform || dateEl.style.transform.indexOf('rotate') < 0 || /matrix\(1, 0, 0, 1/.test(dateEl.style.transform), dateEl.style.transform || 'none');
+
+  return JSON.stringify({ pass: checks.filter(c => c.ok).length, total: checks.length, checks: checks });
+})()

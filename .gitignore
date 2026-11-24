@@ -1,0 +1,19 @@
+# 构建产物（node build.mjs 生成），不入库
+/dist/
+*.log
+
+# 服务端运行时数据
+server/data/store.json
+server/data/*.broken-*
+
+# 浏览器测试临时 profile / 截图临时区
+/profile/
+/tools/.tmp/
+
+# 系统与编辑器
+node_modules/
+Thumbs.db
+.DS_Store
+.idea/
+.vscode/
+*.swp

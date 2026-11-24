@@ -1,0 +1,10 @@
+# 统一换行符，避免 Windows 检出后脚本/HTML 变成 CRLF
+* text=auto eol=lf
+
+# 二进制
+*.png binary
+*.jpg binary
+*.webp binary
+
+# 依赖为第三方发行文件，折叠 diff
+vendor/* linguist-vendored

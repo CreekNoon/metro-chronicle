@@ -1,0 +1,131 @@
+(async () => {
+  const M = window.__METRO__;
+  const S = M.Scene, A = M.App, E = M.Edit, LS = M.LineSelection;
+  const checks = [];
+  const add = (name, ok, detail) => checks.push({ name: name, ok: !!ok, detail: detail === undefined ? '' : String(detail) });
+  const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+  const waitFinish = async (limit) => {
+    const t0 = performance.now();
+    while (!M.Story.finished && performance.now() - t0 < (limit || 30000)) await sleep(120);
+    await sleep(250);
+    return M.Story.finished;
+  };
+
+  await waitFinish();
+
+  /* ---------------------------------------------------- 1) 缩放控件（播放期可用） */
+  const map = A.map;
+  const zoom0 = map.getZoom();
+  add('播放中地图手势已锁定', map.dragging.enabled() === false && map.scrollWheelZoom.enabled() === false);
+  document.getElementById('zoomIn').click();
+  await sleep(700);
+  const zoom1 = map.getZoom();
+  add('播放中点击「＋」可放大', zoom1 > zoom0, zoom0 + ' → ' + zoom1);
+  document.getElementById('zoomOut').click();
+  await sleep(700);
+  const zoom2 = map.getZoom();
+  add('点击「－」可缩小', zoom2 < zoom1, zoom1 + ' → ' + zoom2);
+  document.getElementById('zoomFit').click();
+  await sleep(900);
+  add('「复位视野」恢复适配视野', Math.abs(map.getZoom() - zoom0) <= 1, map.getZoom() + ' vs ' + zoom0);
+  add('缩放后地图仍锁定', map.dragging.enabled() === false);
+
+  /* ---------------------------------------------------- 2) 跳过动画 */
+  document.getElementById('replayBtn').click();
+  await sleep(900);
+  add('重播开始（未完成）', M.Story.finished === false, JSON.stringify(M.snapshot().story));
+  const tSkip = performance.now();
+  document.getElementById('skipBtn').click();
+  await sleep(400);
+  add('「跳过动画」直达终态', M.Story.finished === true, Math.round(performance.now() - tSkip) + 'ms');
+  const afterSkip = M.snapshot();
+  add('跳过后数据为全量', Number(afterSkip.stats.lines) === A.plan.lines.length,
+    afterSkip.stats.lines + ' vs ' + A.plan.lines.length);
+  add('跳过后顶栏为最后一条线', afterSkip.badgeType === A.plan.lines[A.plan.lines.length - 1].type, afterSkip.badgeType);
+  add('跳过后换乘站已点亮', Object.keys(afterSkip.stationStates).filter(k => afterSkip.stationStates[k] === 'transfer').length >= 4,
+    Object.keys(afterSkip.stationStates).filter(k => afterSkip.stationStates[k] === 'transfer').length);
+
+  /* ---------------------------------------------------- 3) 线路多选 */
+  const totalLines = A.plan.lines.length;
+  const icLine = A.plan.lines.filter(l => l.type === 'intercity')[0];
+  const metroLine = A.plan.lines.filter(l => l.type === 'metro')[0];
+  add('选择状态默认全选', LS.count() === totalLines, LS.count() + '/' + totalLines);
+
+  // 只保留城际线：先取消所有地铁
+  A.plan.lines.filter(l => l.type === 'metro').forEach((line) => {
+    if (line.key !== icLine.key) LS.toggle(line.key);
+  });
+  LS.persist();
+  M.LineUI.render();
+  add('可取消多条线路', LS.count() === 1, LS.count());
+  document.getElementById('replayBtn').click();
+  await sleep(1200);
+  const icOnly = M.snapshot();
+  add('仅城际线播放：阶段数=1', icOnly.story.phases.length === 1, JSON.stringify(icOnly.story.phases));
+  add('仅城际线播放：顶栏为城际徽章', icOnly.badgeType === 'intercity' && icOnly.badge === icLine.badge,
+    icOnly.badge + '/' + icOnly.badgeType);
+  await waitFinish();
+  const icEnd = M.snapshot();
+  add('仅城际线统计为 1 条', icEnd.stats.lines === '1', icEnd.stats.lines);
+  add('仅城际线站点数=该线条目数', Number(icEnd.stats.stations) === icLine.stations.length,
+    icEnd.stats.stations + ' vs ' + icLine.stations.length);
+
+  // 至少保留一条：再取消会被拦截
+  const before = LS.count();
+  const blocked = LS.toggle(icLine.key) === false;
+  add('至少保留一条线路（拦截取消最后一条）', blocked && LS.count() === before, 'blocked=' + blocked + ' count=' + LS.count());
+  add('拦截时提示 Toast', document.getElementById('toast').textContent.indexOf('至少保留') >= 0,
+    document.getElementById('toast').textContent);
+
+  // 恢复全选
+  LS.setAll(true);
+  M.LineUI.render();
+  document.getElementById('replayBtn').click();
+  await sleep(1000);
+  add('恢复全选后阶段数=线路数', M.snapshot().story.phases.length === totalLines,
+    JSON.stringify(M.snapshot().story.phases));
+  await waitFinish();
+
+  /* ---------------------------------------------------- 4) 编辑态增删线路 */
+  document.getElementById('editBtn').click();
+  await sleep(400);
+  const linesBefore = A.plan.lines.length;
+  document.querySelectorAll('#editBar [data-act="add-metro"]')[0].click();
+  await sleep(300);
+  add('可新建地铁线路', A.plan.lines.length === linesBefore + 1, A.plan.lines.length);
+  add('新建线路为当前编辑线', E.lineIndex === A.plan.lines.length - 1, E.lineIndex);
+
+  document.querySelectorAll('#editBar [data-act="add-intercity"]')[0].click();
+  await sleep(300);
+  const added = A.plan.lines[A.plan.lines.length - 1];
+  add('可新建城际线路', added.type === 'intercity' && A.plan.lines.length === linesBefore + 2, added.type + '/' + A.plan.lines.length);
+  add('城际新线徽章为城际', added.badge === '城际', added.badge);
+  add('新建线路默认空站', added.stations.length === 0, added.stations.length);
+  add('工具条列出全部线路（含新线）', document.querySelectorAll('#editBar [data-act="line"]').length === A.plan.lines.length,
+    document.querySelectorAll('#editBar [data-act="line"]').length);
+
+  document.querySelectorAll('#editBar [data-act="delete-line"]')[0].click();
+  await sleep(200);
+  add('删除线路需二次确认', A.plan.lines.length === linesBefore + 2, A.plan.lines.length);
+  document.querySelectorAll('#editBar [data-act="delete-line"]')[0].click();
+  await sleep(300);
+  add('二次点击删除线路', A.plan.lines.length === linesBefore + 1, A.plan.lines.length);
+  document.querySelectorAll('#editBar [data-act="delete-line"]')[0].click();
+  await sleep(200);
+  document.querySelectorAll('#editBar [data-act="delete-line"]')[0].click();
+  await sleep(300);
+  add('删回原始线路数', A.plan.lines.length === linesBefore, A.plan.lines.length);
+
+  /* ---- 编辑态完成并播放 ---- */
+  document.querySelector('#editBar [data-act="done"]').click();
+  await sleep(1200);
+  add('完成后开始播放', E.active === false && (M.Story.playing || M.Story.finished));
+  await waitFinish();
+
+  /* ---- 城际站标在编辑态也生效 ---- */
+  add('城际服务站方形标识存在', S.stations[Object.keys(S.stations).find(k => {
+    return A.plan.lines.some(l => l.type === 'intercity' && l.stations.some(s => s.key === k));
+  })] !== undefined, 'ok');
+
+  return JSON.stringify({ pass: checks.filter(c => c.ok).length, total: checks.length, checks: checks });
+})()

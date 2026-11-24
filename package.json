@@ -1,0 +1,17 @@
+{
+  "name": "metro-chronicle",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "description": "城市地铁线网开通纪事：单文件离线可视化（多线路 / 城际铁路 / 可编辑线网 / 前后端）",
+  "scripts": {
+    "build": "node build.mjs",
+    "serve": "node server/server.mjs",
+    "test:baseline": "node tools/run.mjs --wait=24000 --eval=tools/tests/t1-baseline.js",
+    "test:edit": "node tools/run.mjs --wait=12000 --eval=tools/tests/t5-edit.js",
+    "test:offline": "node tools/run.mjs --offline --wait=26000 --eval=tools/tests/t8-offline.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

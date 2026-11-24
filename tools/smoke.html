@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<!-- viewport meta is required so Emulation.setDeviceMetricsOverride(mobile:true)
+     keeps document.documentElement.clientWidth === 390 instead of the 980px
+     default layout viewport. -->
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>probe smoke</title>
+<style>
+  body { margin: 0; padding: 24px; font-family: system-ui, sans-serif; }
+  #box { font-size: 20px; }
+</style>
+</head>
+<body>
+<div id="box">pending</div>
+<script>
+  console.log('hello');
+  setTimeout(function () { throw new Error('boom'); }, 100);
+  var box = document.getElementById('box');
+  box.textContent = 'ok';
+  console.log('box =', box.textContent);
+</script>
+</body>
+</html>
