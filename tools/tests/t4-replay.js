@@ -18,10 +18,10 @@
   /* ---- 播放中途：应已完全复位到 1 号线场景 ---- */
   const mid = M.snapshot();
   add('重播后日期复位 2030.06.28', mid.date === '2030.06.28', mid.date);
-  add('重播后顶栏复位 1 号线', mid.badge === '1' && mid.lineName === '1 号线', mid.badge + '/' + mid.lineName);
-  add('重播后区间复位', mid.range === '云龙—株洲西站', mid.range);
-  add('重播后状态复位 试运行', mid.status === '试运行', mid.status);
-  add('重播后面板复位 1/6/30', mid.stats.lines === '1' && mid.stats.stations === '6' && mid.stats.km === '30', JSON.stringify(mid.stats));
+  add('重播后顶栏为首条线路', mid.badge === A.plan.lines[0].badge && mid.lineName === A.plan.lines[0].name, mid.badge + '/' + mid.lineName);
+  add('重播后区间为首条线路区间', mid.range.indexOf(A.plan.lines[0].stations[0].name) === 0, mid.range);
+  add('重播后状态为首条线路状态', mid.status === A.plan.lines[0].status, mid.status);
+  add('重播后面板从 0 开始累加', mid.stats.lines === '0' && mid.stats.stations === '0' && mid.stats.km === '0', JSON.stringify(mid.stats));
   add('重播后清水塘回到未开通/未揭示', ['hidden', 'ghost'].indexOf(mid.stationStates['zz-qingshuitang']) >= 0, mid.stationStates['zz-qingshuitang']);
   add('重播后无任何换乘态', Object.keys(mid.stationStates).every(k => mid.stationStates[k] !== 'transfer'),
     JSON.stringify(mid.stationStates));
@@ -37,17 +37,17 @@
   const end = M.snapshot();
   const plan = A.plan;
   const lastLine = plan.lines[plan.lines.length - 1];
-  const entries = plan.lines.reduce((sum, l) => sum + l.stations.length, 0);
+  const entries = Object.keys(S.stations).length;
   add('重播可完整播放到结束', end.story.finished === true, '用时 ' + waited + 'ms');
   add('结束态日期为末线日期', end.date === lastLine.dateText, end.date);
   add('结束态线路数=线路总数', Number(end.stats.lines) === plan.lines.length, end.stats.lines);
-  add('结束态站点数=条目总数', Number(end.stats.stations) === entries, end.stats.stations + ' vs ' + entries);
+  add('结束态站点数=去重站数', Number(end.stats.stations) === entries, end.stats.stations + ' vs ' + entries);
   add('结束态清水塘为换乘', end.stationStates['zz-qingshuitang'] === 'transfer', end.stationStates['zz-qingshuitang']);
 
   /* ---- 复位残留检查 ---- */
   const headOpacity = plan.lines.map((line) => Number(S.routes[line.key].head.options.opacity));
   add('头部标记无透明度残留', headOpacity.every(v => v === 0), JSON.stringify(headOpacity));
-  const uniqueStations = Object.keys(S.stations).length;
+  const uniqueStations = entries;
   add('站点标记数量=去重站数（无重复图层）',
     A.map.getContainer().querySelectorAll('.st').length === uniqueStations,
     A.map.getContainer().querySelectorAll('.st').length + ' vs ' + uniqueStations);

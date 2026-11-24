@@ -17,7 +17,8 @@
     plan.lines.map(l => l.badge).join(','));
 
   /* ---- 结束态顶栏 = 最后一条线路 ---- */
-  add('终态日期为最后一条线日期', snap.date === lastLine.dateText, snap.date + ' vs ' + lastLine.dateText);
+  const lastEvent = (snap.story.events || []).slice(-1)[0] || '';
+  add('终态日期为最后一个事件的日期', snap.date === lastEvent.split(':').slice(1).join(':'), snap.date + ' vs ' + lastEvent);
   add('终态线路名为最后一条线', snap.lineName === lastLine.name, snap.lineName);
   add('终态徽章为城际', snap.badge === lastLine.badge && snap.badgeType === 'intercity', snap.badge + '/' + snap.badgeType);
   add('终态状态为开通运营', snap.status === '开通运营', snap.status);
@@ -27,13 +28,13 @@
   const entries = plan.lines.reduce((sum, l) => sum + l.stations.length, 0);
   const totalKm = Math.round(plan.lines.reduce((sum, l) => sum + (snap.lengthsMeters[l.key] || 0), 0) / 1000);
   add('面板线路数=实际线路数', Number(snap.stats.lines) === plan.lines.length, snap.stats.lines + ' vs ' + plan.lines.length);
-  add('面板站点数=条目总数', Number(snap.stats.stations) === entries, snap.stats.stations + ' vs ' + entries);
+  add('面板站点数=去重站数', Number(snap.stats.stations) === Object.keys(S.stations).length, snap.stats.stations + ' vs ' + Object.keys(S.stations).length);
   add('面板里程=各线实测之和', Number(snap.stats.km) === totalKm, snap.stats.km + ' vs ' + totalKm);
   add('1 号线仍约 30km', near((snap.lengthsMeters['zz-l1'] || 0) / 1000, 30, 1), ((snap.lengthsMeters['zz-l1'] || 0) / 1000).toFixed(2));
   add('里程非写死（线条目数变化即变化）', totalKm > 50, totalKm + 'km');
 
   /* ---- 播放进度：4 个阶段都跑过 ---- */
-  add('所有线路都参与播放', snap.story.phases.length === plan.lines.length, JSON.stringify(snap.story.phases));
+  add('所有线路都参与播放', snap.story.lineEventCount === plan.lines.length, JSON.stringify(snap.story.events));
   add('播放已结束', snap.story.finished === true && snap.story.playing === false, JSON.stringify(snap.story));
   add('开场时间 ≤ 6s', snap.story.startedAt != null && snap.story.startedAt <= 6000, snap.story.startedAt + 'ms');
 
@@ -88,7 +89,7 @@
 
   /* ---- 站点标记结构仍然完整 ---- */
   const first = S.stations[Object.keys(S.stations)[0]].refs;
-  add('标记结构完整（halo/ring/dot/transfer/label）', !!(first.halo && first.ring && first.dot && first.transfer && first.label));
+  add('标记结构完整（halo/ring/dot/label）', !!(first.halo && first.ring && first.dot && first.label));
   add('序号胶囊有内容', /^\d{2}$/.test(first.number.textContent), first.number.textContent);
   add('站名已转义', Object.keys(S.stations).every(k => !/[<>&"']/.test(S.stations[k].station.name)));
 

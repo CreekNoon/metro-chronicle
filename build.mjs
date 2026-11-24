@@ -17,6 +17,7 @@ const APP_PARTS = [
   '20-basemap.js',
   '30-geometry.js',
   '40-scene.js',
+  '45-camera.js',
   '50-story.js',
   '60-edit.js',
   '70-city.js',

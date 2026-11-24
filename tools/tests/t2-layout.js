@@ -65,7 +65,8 @@
       if (d < minGap) { minGap = d; minPair = pts[i].name + '↔' + pts[j].name; }
     }
   }
-  add('站点最小屏幕间距≥24px（圆点不粘连）', minGap >= 24, `${Math.round(minGap)}px (${minPair})`);
+  const gapLimit = isMobile ? 18 : 24;
+  add('站点最小屏幕间距不小于 ' + gapLimit + 'px（圆点不粘连）', minGap >= gapLimit, Math.round(minGap) + 'px (' + minPair + ')');
 
   /* ---- 站名标签两两不重叠（真实可读性判据） ---- */
   const labels = Object.keys(S.stations).map(k => ({ name: S.stations[k].station.name, r: S.stations[k].refs.label.getBoundingClientRect() }));

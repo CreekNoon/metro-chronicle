@@ -61,7 +61,7 @@
   document.getElementById('replayBtn').click();
   await sleep(1200);
   const icOnly = M.snapshot();
-  add('仅城际线播放：阶段数=1', icOnly.story.phases.length === 1, JSON.stringify(icOnly.story.phases));
+  add('仅城际线播放：只有一个整线事件', icOnly.story.lineEventCount === 1, JSON.stringify(icOnly.story.events));
   add('仅城际线播放：顶栏为城际徽章', icOnly.badgeType === 'intercity' && icOnly.badge === icLine.badge,
     icOnly.badge + '/' + icOnly.badgeType);
   await waitFinish();
@@ -82,8 +82,8 @@
   M.LineUI.render();
   document.getElementById('replayBtn').click();
   await sleep(1000);
-  add('恢复全选后阶段数=线路数', M.snapshot().story.phases.length === totalLines,
-    JSON.stringify(M.snapshot().story.phases));
+  add('恢复全选后整线事件数=线路数', M.snapshot().story.lineEventCount === totalLines,
+    JSON.stringify(M.snapshot().story.events));
   await waitFinish();
 
   /* ---------------------------------------------------- 4) 编辑态增删线路 */
@@ -104,16 +104,22 @@
   add('工具条列出全部线路（含新线）', document.querySelectorAll('#editBar [data-act="line"]').length === A.plan.lines.length,
     document.querySelectorAll('#editBar [data-act="line"]').length);
 
-  document.querySelectorAll('#editBar [data-act="delete-line"]')[0].click();
-  await sleep(200);
+  E.openLineSheet();
+  await sleep(350);
+  document.getElementById('deleteLineBtn').click();
+  await sleep(250);
   add('删除线路需二次确认', A.plan.lines.length === linesBefore + 2, A.plan.lines.length);
-  document.querySelectorAll('#editBar [data-act="delete-line"]')[0].click();
-  await sleep(300);
+  add('首次点击按钮变为确认文案', document.getElementById('deleteLineBtn').textContent.indexOf('确认') >= 0,
+    document.getElementById('deleteLineBtn').textContent);
+  document.getElementById('deleteLineBtn').click();
+  await sleep(400);
   add('二次点击删除线路', A.plan.lines.length === linesBefore + 1, A.plan.lines.length);
-  document.querySelectorAll('#editBar [data-act="delete-line"]')[0].click();
-  await sleep(200);
-  document.querySelectorAll('#editBar [data-act="delete-line"]')[0].click();
+  E.openLineSheet();
   await sleep(300);
+  document.getElementById('deleteLineBtn').click();
+  await sleep(200);
+  document.getElementById('deleteLineBtn').click();
+  await sleep(400);
   add('删回原始线路数', A.plan.lines.length === linesBefore, A.plan.lines.length);
 
   /* ---- 编辑态完成并播放 ---- */
@@ -122,10 +128,11 @@
   add('完成后开始播放', E.active === false && (M.Story.playing || M.Story.finished));
   await waitFinish();
 
-  /* ---- 城际站标在编辑态也生效 ---- */
-  add('城际服务站方形标识存在', S.stations[Object.keys(S.stations).find(k => {
-    return A.plan.lines.some(l => l.type === 'intercity' && l.stations.some(s => s.key === k));
-  })] !== undefined, 'ok');
+  /* ---- 城际站标在播放态也生效 ---- */
+  const railTagged = Array.from(document.querySelectorAll('.st.has-rail'));
+  add('城际服务站带 has-rail 标识', railTagged.length >= 3, railTagged.length);
+  add('城际胶囊可见', railTagged.length > 0 && railTagged.every(el => getComputedStyle(el.querySelector('.st-rail-tag')).display !== 'none'),
+    railTagged.length);
 
   return JSON.stringify({ pass: checks.filter(c => c.ok).length, total: checks.length, checks: checks });
 })()

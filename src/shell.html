@@ -165,6 +165,56 @@
     </div>
   </div>
 
+  <!-- 线路设置面板（编辑态） -->
+  <div class="sheet" id="lineSheet" aria-hidden="true" role="dialog" aria-modal="true" aria-label="线路设置">
+    <div class="sheet-panel">
+      <div class="sheet-head">
+        <h2>线路设置</h2>
+        <button class="sheet-close" type="button" data-close="lineSheet" aria-label="关闭">×</button>
+      </div>
+      <p class="sheet-desc">线路名称、类型、开通日期会决定它在时间轴中的位置（按日期先后播放）。</p>
+      <div class="sheet-row">
+        <label class="sheet-field">
+          <span>线路名称</span>
+          <input id="lineNameInput" type="text" maxlength="24" spellcheck="false" />
+        </label>
+        <label class="sheet-field sheet-field-narrow">
+          <span>徽章</span>
+          <input id="lineBadgeInput" type="text" maxlength="4" spellcheck="false" />
+        </label>
+      </div>
+      <div class="sheet-row">
+        <label class="sheet-field">
+          <span>线路类型</span>
+          <select id="lineTypeSelect">
+            <option value="metro">地铁</option>
+            <option value="intercity">城际铁路</option>
+          </select>
+        </label>
+        <label class="sheet-field">
+          <span>开通状态</span>
+          <select id="lineStatusSelect">
+            <option value="试运行">试运行</option>
+            <option value="开通运营">开通运营</option>
+          </select>
+        </label>
+      </div>
+      <label class="sheet-field">
+        <span>开通日期（YYYY.MM.DD）</span>
+        <input id="lineDateInput" type="text" placeholder="2034.03.18" spellcheck="false" />
+      </label>
+      <div class="sheet-field">
+        <span>线路颜色</span>
+        <div class="color-row" id="lineColorRow"></div>
+      </div>
+      <div class="sheet-actions">
+        <button class="btn-danger-plain" type="button" id="deleteLineBtn">删除本线</button>
+        <button class="btn-plain" type="button" data-close="lineSheet">取消</button>
+        <button class="btn-primary" type="button" id="saveLineBtn">保存</button>
+      </div>
+    </div>
+  </div>
+
   <!-- 轻提示 -->
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 </div>

@@ -44,15 +44,16 @@
     getComputedStyle(mains[0]).stroke + ' vs ' + getComputedStyle(mains[1]).stroke);
 
   /* ---- 站点：ring/dot 用线路色，换乘站双色 ---- */
-  const ring = S.stations['zz-yunlong'].refs.ring;
-  const dot = S.stations['zz-yunlong'].refs.dot;
+  const plainStation = S.stations['zz-tianyi'];   // 单线站点，圆环/圆点应为线路色
+  const ring = plainStation.refs.ring;
+  const dot = plainStation.refs.dot;
   add('站点圆环描边用线路色', rgb(getComputedStyle(ring).borderTopColor) === 'rgb(230,0,18)', getComputedStyle(ring).borderTopColor);
   add('站点圆点用线路色', rgb(getComputedStyle(dot).backgroundColor) === 'rgb(230,0,18)', getComputedStyle(dot).backgroundColor);
   const q = S.stations['zz-qingshuitang'].refs;
-  const a1 = getComputedStyle(q.transfer.querySelector('.st-transfer-a')).backgroundColor;
-  const a2 = getComputedStyle(q.transfer.querySelector('.st-transfer-b')).backgroundColor;
-  add('换乘标志为双色互扣', rgb(a1) === 'rgb(230,0,18)' && rgb(a2) === 'rgb(0,104,183)', a1 + ' / ' + a2);
-  add('换乘站圆点隐藏', getComputedStyle(q.dot).display === 'none', getComputedStyle(q.dot).display);
+  const ringGradient = String(getComputedStyle(q.ring).backgroundImage);
+  add('换乘环为单点多色渐变', /conic-gradient/.test(ringGradient), ringGradient.slice(0, 70));
+  add('渐变按线路颜色分段', /230, ?0, ?18/.test(ringGradient) && /0, ?104, ?183/.test(ringGradient), ringGradient.slice(0, 110));
+  add('换乘站中心为白色单点', getComputedStyle(q.dot).backgroundColor === 'rgb(255, 255, 255)', getComputedStyle(q.dot).backgroundColor);
   add('序号胶囊是胶囊形', parseFloat(getComputedStyle(q.number).borderTopLeftRadius) >= 3, getComputedStyle(q.number).borderTopLeftRadius);
   add('暂未开通胶囊在换乘态隐藏', getComputedStyle(q.st.querySelector('.st-ghost')).display === 'none', getComputedStyle(q.st.querySelector('.st-ghost')).display);
 

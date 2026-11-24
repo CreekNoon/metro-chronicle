@@ -15,7 +15,7 @@
   add('断网下仍可开场（≤6s）', typeof snap.story.startedAt === 'number' && snap.story.startedAt <= 6000, snap.story.startedAt + 'ms');
   add('断网下完整播放完毕', snap.story.finished === true, Math.round(performance.now()) + 'ms');
   add('断网终态线路数=线路总数', Number(snap.stats.lines) === plan.lines.length, snap.stats.lines);
-  add('断网终态站点数=条目总数', Number(snap.stats.stations) === entries, snap.stats.stations + ' vs ' + entries);
+  add('断网终态站点数=去重站数', Number(snap.stats.stations) === Object.keys(S.stations).length, snap.stats.stations + ' vs ' + Object.keys(S.stations).length);
   add('断网终态为末线开通运营', snap.badge === lastLine.badge && snap.status === '开通运营', snap.badge + '/' + snap.status);
   add('断网未卡在加载页（遮罩已淡出）', Number(getComputedStyle(document.getElementById('veil')).opacity) < 0.05,
     getComputedStyle(document.getElementById('veil')).opacity);
@@ -34,7 +34,7 @@
     document.getElementById('replayBtn').click();
     await sleep(1500);
     const mid = M.snapshot();
-    return mid.date === '2030.06.28' && mid.stats.lines === '1';
+    return mid.date === '2030.06.28' && mid.story.playing === true;
   })());
   add('重播中地图锁定', A.locked === true);
 

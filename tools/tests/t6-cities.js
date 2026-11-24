@@ -61,7 +61,7 @@
   await waitFinish('湘潭播放完成');
   const xt = M.snapshot();
   add('湘潭终态线路数 3', xt.stats.lines === '3', xt.stats.lines);
-  add('湘潭终态站点数 12', xt.stats.stations === '12', xt.stats.stations);
+  add('湘潭终态站点数 9（去重）', xt.stats.stations === '9', xt.stats.stations);
   add('湘潭终态里程实时计算', Number(xt.stats.km) > 20 && Number(xt.stats.km) < 60, xt.stats.km);
   add('湘潭末线为城际且开通运营', xt.badge === '城际' && xt.status === '开通运营', xt.badge + '/' + xt.status);
   add('湘潭换乘站（湘潭站）为换乘态', xt.stationStates['xt-xiangtanzhan'] === 'transfer', xt.stationStates['xt-xiangtanzhan']);
@@ -78,9 +78,9 @@
   const backEnd = M.snapshot();
   add('切回后终态线路数=株洲线路数', Number(backEnd.stats.lines) === A.plan.lines.length,
     backEnd.stats.lines + ' vs ' + A.plan.lines.length);
-  add('切回后终态站点数=条目总数',
-    Number(backEnd.stats.stations) === A.plan.lines.reduce((sum, l) => sum + l.stations.length, 0),
-    backEnd.stats.stations);
+  add('切回后终态站点数=去重站数',
+    Number(backEnd.stats.stations) === Object.keys(S.stations).length,
+    backEnd.stats.stations + ' vs ' + Object.keys(S.stations).length);
 
   /* ---- 切城市时不应产生重复图层 ---- */
   const lineCount = A.plan.lines.length;

@@ -1138,7 +1138,18 @@ body {
   background: rgba(255, 255, 255, 0.72);
 }
 
-.st.is-transfer .st-ring { display: none; }
+/* 换乘站：单点多色圆环（按各线路颜色分段），不再用两个点表示 */
+.st.is-transfer .st-ring {
+  width: 17px;
+  height: 17px;
+  margin: -8.5px 0 0 -8.5px;
+  border: 0;
+  background-image: var(--ring-gradient, conic-gradient(#e60012 0 180deg, #0068b7 180deg 360deg));
+  background-color: transparent;
+  box-shadow: 0 0 0 1.2px rgba(255, 255, 255, 0.9), 0 1px 3px rgba(18, 22, 27, 0.18);
+}
+
+.st.is-transfer .st-halo { background: #4a5462; }
 
 .st-dot {
   width: 5px;
@@ -1150,37 +1161,14 @@ body {
 }
 
 .st.is-ghost .st-dot { background: #c2c9d1; }
-.st.is-transfer .st-dot { display: none; }
 
-/* 换乘标志：双色互扣圆环（仅 transfer 状态显示） */
-.st-transfer {
-  display: none;
-  width: 20px;
-  height: 20px;
-  margin: -10px 0 0 -10px;
-}
-
-.st.is-transfer .st-transfer { display: block; }
-
-.st-transfer i {
-  position: absolute;
-  top: 50%;
-  width: 11px;
-  height: 11px;
-  margin-top: -5.5px;
-  border: 1.8px solid #fff;
-  border-radius: 50%;
-  box-sizing: border-box;
-}
-
-.st-transfer-a {
-  left: 0;
-  background: var(--c1, #e60012);
-}
-
-.st-transfer-b {
-  right: 0;
-  background: var(--c2, #0068b7);
+/* 换乘站中心留白：多色圆环内是白点，读作「一个站」而不是两个点 */
+.st.is-transfer .st-dot {
+  width: 7px;
+  height: 7px;
+  margin: -3.5px 0 0 -3.5px;
+  background: #fff;
+  box-shadow: inset 0 0 0 1px rgba(18, 22, 27, 0.1);
 }
 
 /* 城际铁路：仅城际服务的站用方形站标（与地铁共站保留圆形 + 「城际」胶囊） */
@@ -1880,6 +1868,68 @@ body.is-editing .leaflet-marker-draggable:active { cursor: grabbing; }
   color: var(--ink-3);
 }
 
+/* --------------------------------------------- 编辑卡片：下拉/日期/线路设置 */
+
+.card-field select,
+.sheet-field select {
+  width: 100%;
+  padding: 9px 11px;
+  border: 1px solid var(--hairline);
+  border-radius: 10px;
+  background-color: #fff;
+  color: var(--ink);
+  font-family: inherit;
+  font-size: 13px;
+  -webkit-appearance: none;
+  appearance: none;
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M3 4.6 6 7.6 9 4.6' fill='none' stroke='%235c646f' stroke-width='1.3' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  background-size: 11px 11px;
+  cursor: pointer;
+}
+
+.card-field select:focus,
+.sheet-field select:focus {
+  outline: none;
+  border-color: rgba(18, 22, 27, 0.32);
+}
+
+.sheet-field select { padding: 10px 12px; border-radius: 11px; background-color: #fbfbfc; }
+.sheet-field select:focus { background-color: #fff; }
+.sheet-field-narrow { max-width: 96px; }
+
+.card-tag-alone {
+  background: rgba(123, 94, 167, 0.14) !important;
+  color: #5b4880 !important;
+}
+
+.color-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+  padding: 3px 0 5px;
+}
+
+.color-dot {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 50%;
+  background: var(--dot-color, #e60012);
+  cursor: pointer;
+  box-shadow: inset 0 0 0 1px rgba(18, 22, 27, 0.14);
+  transition: transform 140ms var(--ease-out);
+}
+
+.color-dot:hover { transform: scale(1.08); }
+
+.color-dot.is-on {
+  border-color: #12161b;
+  box-shadow: inset 0 0 0 2px #fff;
+}
+
 /* ------------------------------------------------------------- 响应式 */
 
 @media (max-width: 720px) {
@@ -2151,6 +2201,56 @@ body.is-editing #editBtn { display: none; }
       <div class="sheet-actions">
         <button class="btn-plain" type="button" data-close="citySheet">取消</button>
         <button class="btn-primary" type="button" id="createCity">生成空白线网</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 线路设置面板（编辑态） -->
+  <div class="sheet" id="lineSheet" aria-hidden="true" role="dialog" aria-modal="true" aria-label="线路设置">
+    <div class="sheet-panel">
+      <div class="sheet-head">
+        <h2>线路设置</h2>
+        <button class="sheet-close" type="button" data-close="lineSheet" aria-label="关闭">×</button>
+      </div>
+      <p class="sheet-desc">线路名称、类型、开通日期会决定它在时间轴中的位置（按日期先后播放）。</p>
+      <div class="sheet-row">
+        <label class="sheet-field">
+          <span>线路名称</span>
+          <input id="lineNameInput" type="text" maxlength="24" spellcheck="false" />
+        </label>
+        <label class="sheet-field sheet-field-narrow">
+          <span>徽章</span>
+          <input id="lineBadgeInput" type="text" maxlength="4" spellcheck="false" />
+        </label>
+      </div>
+      <div class="sheet-row">
+        <label class="sheet-field">
+          <span>线路类型</span>
+          <select id="lineTypeSelect">
+            <option value="metro">地铁</option>
+            <option value="intercity">城际铁路</option>
+          </select>
+        </label>
+        <label class="sheet-field">
+          <span>开通状态</span>
+          <select id="lineStatusSelect">
+            <option value="试运行">试运行</option>
+            <option value="开通运营">开通运营</option>
+          </select>
+        </label>
+      </div>
+      <label class="sheet-field">
+        <span>开通日期（YYYY.MM.DD）</span>
+        <input id="lineDateInput" type="text" placeholder="2034.03.18" spellcheck="false" />
+      </label>
+      <div class="sheet-field">
+        <span>线路颜色</span>
+        <div class="color-row" id="lineColorRow"></div>
+      </div>
+      <div class="sheet-actions">
+        <button class="btn-danger-plain" type="button" id="deleteLineBtn">删除本线</button>
+        <button class="btn-plain" type="button" data-close="lineSheet">取消</button>
+        <button class="btn-primary" type="button" id="saveLineBtn">保存</button>
       </div>
     </div>
   </div>
@@ -2468,7 +2568,8 @@ var CITY_PRESETS = [
           { key: 'zz-liyu', name: '栗雨', lat: 27.8300, lng: 113.0650, shared: true },
           { key: 'zz-shennong', name: '神农城', lat: 27.8180, lng: 113.1250 },
           { key: 'zz-zhuzhouzhan', name: '株洲站', lat: 27.8290, lng: 113.1420, shared: true },
-          { key: 'zz-hetang', name: '荷塘', lat: 27.8580, lng: 113.1850 },
+          // 荷塘单独开通：比 3 号线晚一年多，用于演示「按时间顺序插播单个站点开通」
+          { key: 'zz-hetang', name: '荷塘', lat: 27.8580, lng: 113.1850, openMode: 'alone', openDate: '2035.06.01' },
           { key: 'zz-jinshan', name: '金山新城', lat: 27.8830, lng: 113.2280, shared: true }
         ]
       },
@@ -2620,7 +2721,10 @@ function normalizeLine(line, lineIndex, fallback) {
       side: LABEL_SIDES.indexOf(station.side) >= 0 ? station.side : '',
       ghost: !!station.ghost,
       shared: !!station.shared,
-      terminal: !!station.terminal
+      terminal: !!station.terminal,
+      // 开通方式：随线路一起开通（默认）/ 单独开通（有自己的开通日期）
+      openMode: station.openMode === 'alone' ? 'alone' : 'line',
+      openDate: typeof station.openDate === 'string' ? station.openDate.slice(0, 16) : ''
     });
   });
 
@@ -2660,15 +2764,29 @@ function normalizePlan(rawPlan) {
   });
   if (!lines.length) return null;
 
-  // 跨线同 key：位置与换乘标记同步
+  // 跨线同 key：位置、换乘标记与开通方式同步
   var byKey = {};
   lines.forEach(function (line) {
     line.stations.forEach(function (station) {
       if (!byKey[station.key]) {
-        byKey[station.key] = { lat: station.lat, lng: station.lng, count: 0, ghost: station.ghost };
+        byKey[station.key] = {
+          lat: station.lat,
+          lng: station.lng,
+          count: 0,
+          ghost: station.ghost,
+          openMode: station.openMode,
+          openDate: station.openDate
+        };
       }
       byKey[station.key].count += 1;
       if (station.ghost) byKey[station.key].ghost = true;
+      if (station.openMode === 'alone' && byKey[station.key].openMode !== 'alone') {
+        byKey[station.key].openMode = 'alone';
+        byKey[station.key].openDate = station.openDate;
+      }
+      if (station.openMode === 'alone' && !byKey[station.key].openDate && station.openDate) {
+        byKey[station.key].openDate = station.openDate;
+      }
     });
   });
   lines.forEach(function (line) {
@@ -2678,6 +2796,8 @@ function normalizePlan(rawPlan) {
       station.lng = entry.lng;
       station.shared = entry.count > 1 || station.shared;
       if (entry.count > 1 && entry.ghost) station.ghost = true;
+      station.openMode = entry.openMode === 'alone' ? 'alone' : 'line';
+      station.openDate = station.openMode === 'alone' ? (entry.openDate || station.openDate || '') : '';
     });
   });
 
@@ -2760,6 +2880,8 @@ function isValidStoredPlan(raw, cityId) {
       if (seen[station.key]) { ok = false; return; }     // 同线 key 必须唯一
       seen[station.key] = true;
       if (typeof station.name !== 'string') { ok = false; return; }
+      if (station.openMode != null && station.openMode !== 'line' && station.openMode !== 'alone') { ok = false; return; }
+      if (station.openDate != null && typeof station.openDate !== 'string') { ok = false; return; }
       if (!isValidLatLng(Number(station.lat), Number(station.lng))) { ok = false; }
     });
   });
@@ -2814,18 +2936,42 @@ function createCustomCity(name, center) {
 
 /* ------------------------------------------------ 统计（绝不写死数字） */
 
-/** 统计激活线路的条目数 / 里程（里程为平滑曲线实际长度，四舍五入到 km） */
-function computeStats(lines, geometryMap) {
-  var stationCount = 0;
+/** 解析 '2030.06.28' / '2030-6-28' / '2030年6月28日' → 可比较数字（YYYYMMDD）；非法返回 Infinity */
+function parseDateValue(text) {
+  var match = /^(\d{4})\s*[.\-/年]?\s*(\d{1,2})\s*[.\-/月]?\s*(\d{1,2})/.exec(String(text == null ? '' : text).trim());
+  if (!match) return Infinity;
+  var year = Number(match[1]);
+  var month = Number(match[2]);
+  var day = Number(match[3]);
+  if (!(month >= 1 && month <= 12 && day >= 1 && day <= 31)) return Infinity;
+  return year * 10000 + month * 100 + day;
+}
+
+/** 统一成页面展示格式 YYYY.MM.DD；非法返回空串 */
+function normalizeDateInput(text) {
+  var match = /^(\d{4})\s*[.\-/年]?\s*(\d{1,2})\s*[.\-/月]?\s*(\d{1,2})/.exec(String(text == null ? '' : text).trim());
+  if (!match) return '';
+  var month = Number(match[2]);
+  var day = Number(match[3]);
+  if (!(month >= 1 && month <= 12 && day >= 1 && day <= 31)) return '';
+  return match[1] + '.' + ('0' + month).slice(-2) + '.' + ('0' + day).slice(-2);
+}
+
+/** 统计口径：站点按「去重站数」计数（换乘站只算一个）；里程只累加已开通线路 */
+function computeStats(lines, geometryMap, extraStationKeys) {
+  var keys = {};
+  lines.forEach(function (line) {
+    line.stations.forEach(function (station) { keys[station.key] = true; });
+  });
+  (extraStationKeys || []).forEach(function (key) { keys[key] = true; });
   var meters = 0;
   lines.forEach(function (line) {
-    stationCount += line.stations.length;
     var geometry = geometryMap[line.key];
     if (geometry && isFiniteNumber(geometry.totalMeters)) meters += geometry.totalMeters;
   });
   return {
     lines: lines.length,
-    stations: stationCount,
+    stations: Object.keys(keys).length,
     km: Math.round(meters / 1000)
   };
 }
@@ -3748,6 +3894,7 @@ var Scene = {
   stations: {},
   bounds: null,
   built: false,
+  openedLineKeys: {},
 
   init: function (map) {
     this.map = map;
@@ -3883,7 +4030,7 @@ var Scene = {
     var marker = createStationMarker(station, line, {
       state: 'hidden',
       numberText: formatStationNumber(stationIndex + 1),
-      transferColors: transferColorVars(this.plan, station.key),
+      ringStyle: ringStyleVars(this.plan, station.key),
       hasRail: railFlags.hasRail,
       isRailOnly: railFlags.isRailOnly
     });
@@ -3896,7 +4043,6 @@ var Scene = {
       halo: el ? el.querySelector('.st-halo') : null,
       ring: el ? el.querySelector('.st-ring') : null,
       dot: el ? el.querySelector('.st-dot') : null,
-      transfer: el ? el.querySelector('.st-transfer') : null,
       label: el ? el.querySelector('.st-label') : null,
       labelInner: el ? el.querySelector('.st-label-inner') : null,
       name: el ? el.querySelector('.st-name') : null,
@@ -3935,6 +4081,7 @@ var Scene = {
       route.head.setLatLng(L.latLng(slice.head[0], slice.head[1]));
       route.head.setOpacity(1);
     }
+    var headPoint = slice.head;
 
     // 站点：弧长比例已到达 → 依次点亮（跨线共用站触发 ghost → transfer 变换）
     for (var i = 0; i < line.stations.length; i += 1) {
@@ -3945,6 +4092,8 @@ var Scene = {
 
       var node = this.stations[station.key];
       if (!node) continue;
+      // 单独开通的站点由自己的事件点亮，不在画线时提前出现
+      if (station.openMode === 'alone') continue;
       var numberText = formatStationNumber(i + 1);
       var crossLine = node.lineKey !== line.key;
 
@@ -3961,6 +4110,7 @@ var Scene = {
       if (node.revealed) continue;
       this.revealStation(station.key, station.ghost ? 'ghost' : 'opened', numberText, i);
     }
+    return headPoint;
   },
 
   /** 点亮站点：halo → ring → dot → label 依次入场（halo 保持克制的低透明度） */
@@ -4007,7 +4157,8 @@ var Scene = {
     }
   },
 
-  /** ghost → transfer 的变换动画（清水塘在 2 号线经过时触发） */
+  /** ghost → transfer 的变换动画（清水塘在 2 号线经过时触发）
+      —— 换乘用单点多色圆环表示，切换时做一次「收束 → 弹开」的强调 */
   animateGhostToTransfer: function (stationKey, numberText) {
     var self = this;
     var node = this.stations[stationKey];
@@ -4017,24 +4168,37 @@ var Scene = {
     applyStationState(node, 'transfer', numberText);
     if (refs.st) refs.st.style.opacity = '1';
 
-    if (!window.gsap || !refs.transfer) return;
+    if (!window.gsap || !refs.ring) return;
 
-    killTweens([refs.transfer, refs.ring, refs.labelInner, refs.halo]);
+    killTweens([refs.ring, refs.labelInner, refs.halo]);
     var timeline = gsap.timeline();
-    if (wasGhost) {
-      // 虚线环收束 → 换乘标志展开
-      timeline.fromTo(refs.halo, { opacity: haloOpacityFor('ghost'), scale: 1 }, {
-        opacity: haloOpacityFor('transfer'),
-        scale: 1.35,
-        duration: 0.5,
-        ease: 'power2.out'
-      }, 0);
-      timeline.fromTo(refs.ring, { scale: 0.9 }, { scale: 1, duration: 0.45, ease: 'back.out(2)' }, 0.05);
-    }
-    timeline.fromTo(refs.transfer, { opacity: 0, scale: 0.3 }, { opacity: 1, scale: 1, duration: 0.55, ease: 'back.out(1.8)' }, 0.1);
+    timeline.fromTo(refs.ring, { scale: wasGhost ? 0.7 : 0.86, opacity: 0.35 }, {
+      scale: 1,
+      opacity: 1,
+      duration: 0.52,
+      ease: 'back.out(2)'
+    }, 0);
+    timeline.fromTo(refs.halo, { scale: wasGhost ? 1 : 0.9 }, {
+      scale: 1.35,
+      duration: 0.26,
+      ease: 'power2.out',
+      yoyo: true,
+      repeat: 1
+    }, 0);
     timeline.fromTo(refs.labelInner, { opacity: 0.35, y: 3 }, { opacity: 1, y: 0, duration: 0.5, ease: 'power2.out' }, 0.16);
     // 胶囊切换后标签变宽，重新做一次避让
     timeline.call(function () { self.resolveLabelSides(); }, null, 0.7);
+  },
+
+  /** 单个站点开通（不画线）：只点亮一个点 */
+  revealStandalone: function (stationKey) {
+    var node = this.stations[stationKey];
+    if (!node || node.revealed) return false;
+    var openedLines = this.openedLineKeys || {};
+    var sharedOpened = node.lineKeys.filter(function (key) { return openedLines[key]; }).length;
+    var mode = node.station.ghost ? 'ghost' : (node.lineKeys.length > 1 && sharedOpened >= 2 ? 'transfer' : 'opened');
+    var numberText = formatStationNumber((node.occurrences[0] ? node.occurrences[0].stationIndex : 0) + 1);
+    return this.revealStation(stationKey, mode, numberText, node.occurrences[0] ? node.occurrences[0].stationIndex : 0);
   },
 
   setHeadVisible: function (lineIndex, visible) {
@@ -4141,7 +4305,7 @@ var Scene = {
       Object.keys(this.stations).forEach(function (key) {
         var node = self.stations[key];
         if (!node.refs) return;
-        [node.refs.st, node.refs.halo, node.refs.ring, node.refs.dot, node.refs.transfer, node.refs.labelInner]
+        [node.refs.st, node.refs.halo, node.refs.ring, node.refs.dot, node.refs.labelInner]
           .forEach(function (el) { killTweens(el); });
       });
       Object.keys(this.routes).forEach(function (key) {
@@ -4199,14 +4363,9 @@ var Scene = {
     }
   },
 
-  /** 数据面板：线路数 / 站点数 / 里程，全部实时计算 */
-  updateStats: function (activeLineIndexes) {
+  /** 数据面板数值写入（线路数 / 站点数 / 里程） */
+  applyStats: function (stats) {
     var self = this;
-    var plan = this.plan;
-    if (!plan) return;
-    var lines = activeLineIndexes.map(function (index) { return plan.lines[index]; }).filter(Boolean);
-    var stats = computeStats(lines, this.geometries);
-
     var lineEl = $('#statLines');
     var stationEl = $('#statStations');
     var kmEl = $('#statKm');
@@ -4224,6 +4383,29 @@ var Scene = {
       gsap.fromTo(panel, { opacity: 0.55 }, { opacity: 1, duration: 0.45, ease: 'power2.out' });
     }
     return stats;
+  },
+
+  /** 按已开通线路统计（未单独开通的站点随线路计入） */
+  updateStats: function (activeLineIndexes, extraStationKeys) {
+    var plan = this.plan;
+    if (!plan) return;
+    var lines = activeLineIndexes.map(function (index) { return plan.lines[index]; }).filter(Boolean);
+    return this.applyStats(computeStats(lines, this.geometries, extraStationKeys));
+  },
+
+  /** 单个站点开通事件的顶栏（保留所属线路的徽章与配色） */
+  updateStationHeader: function (lineIndex, station, dateText) {
+    var plan = this.plan;
+    if (!plan || !station) return;
+    this.updateHeader(lineIndex);
+    var dateEl = $('#dateText');
+    if (dateEl) dateEl.textContent = dateText;
+    var nameEl = $('#lineName');
+    if (nameEl) nameEl.textContent = station.name;
+    var rangeEl = $('#lineRange');
+    if (rangeEl) rangeEl.textContent = (plan.lines[lineIndex] ? plan.lines[lineIndex].name : '') + ' · 单独开通';
+    var statusEl = $('#lineStatus');
+    if (statusEl) statusEl.textContent = '站点开通';
   },
 
   updateCredit: function () {
@@ -4250,7 +4432,8 @@ function haloOpacityFor(state) {
   return HALO_OPACITY[state] === undefined ? HALO_OPACITY.opened : HALO_OPACITY[state];
 }
 
-/** 站点标记结构：halo / ring / dot / transfer / label（站名 + 序号胶囊 + 类型/状态胶囊） */
+/** 站点标记结构：halo / ring / dot / label（站名 + 序号胶囊 + 类型/状态胶囊）
+    —— 换乘站用「单点多色圆环」，不再画两个点 */
 function stationMarkup(station, line, options) {
   var opts = options || {};
   var side = LABEL_SIDES.indexOf(station.side) >= 0 ? station.side : 'bottom';
@@ -4263,15 +4446,14 @@ function stationMarkup(station, line, options) {
   if (opts.isRailOnly) classes.push('is-rail');
   if (opts.hasRail) classes.push('has-rail');
 
-  var transferColors = opts.transferColors || '';
-  var style = '--line-color:' + escapeHtml(color) + ';' + (transferColors ? transferColors : '');
+  var ringStyle = opts.ringStyle || '';
+  var style = '--line-color:' + escapeHtml(color) + ';' + ringStyle;
 
   return '' +
     '<div class="' + classes.join(' ') + '" data-station-key="' + escapeHtml(station.key) + '" style="' + style + '">' +
       '<span class="st-halo"></span>' +
       '<span class="st-ring"></span>' +
       '<span class="st-dot"></span>' +
-      '<span class="st-transfer"><i class="st-transfer-a"></i><i class="st-transfer-b"></i></span>' +
       '<span class="st-label">' +
         '<span class="st-label-inner">' +
           '<span class="st-name">' + escapeHtml(station.name) + '</span>' +
@@ -4315,14 +4497,35 @@ function applyStationState(node, state, numberText) {
   if (numberText && node.refs.number) node.refs.number.textContent = numberText;
 }
 
-/** 换乘站的双色：取该站所在两条线路的颜色 */
-function transferColorVars(plan, stationKey) {
+/** 换乘站配色：按经过该站的线路颜色把圆环等分成若干段（单点展示，不再画两个点） */
+function stationLineColors(plan, stationKey) {
   var colors = [];
   (plan ? plan.lines : []).forEach(function (line) {
     var hit = line.stations.some(function (station) { return station.key === stationKey; });
     if (hit && colors.indexOf(line.color) < 0) colors.push(line.color);
   });
-  return '--c1:' + escapeHtml(colors[0] || '#e60012') + ';--c2:' + escapeHtml(colors[1] || colors[0] || '#0068b7') + ';';
+  return colors;
+}
+
+function conicRingGradient(colors) {
+  if (!colors || colors.length < 2) return '';
+  var gap = 6;                                  // 段间白色留白（度）
+  var step = 360 / colors.length;
+  var parts = [];
+  colors.forEach(function (color, index) {
+    var start = index * step + gap / 2;
+    var end = (index + 1) * step - gap / 2;
+    parts.push(color + ' ' + start.toFixed(1) + 'deg ' + end.toFixed(1) + 'deg');
+    parts.push('#ffffff ' + end.toFixed(1) + 'deg ' + (end + gap).toFixed(1) + 'deg');
+  });
+  return 'conic-gradient(from -90deg, ' + parts.join(', ') + ')';
+}
+
+/** 换乘站的多色圆环：写进 --ring-gradient，换乘态由 CSS 应用 */
+function ringStyleVars(plan, stationKey) {
+  var colors = stationLineColors(plan, stationKey);
+  if (colors.length < 2) return '';
+  return '--ring-gradient:' + conicRingGradient(colors) + ';';
 }
 
 /* --------------------------------------------------- 标签方位求解（避让） */
@@ -4484,24 +4687,155 @@ function resolveLabelSidesFor(map, list) {
   layoutStationLabels(map.getSize(), entries);
 }
 
+/* ===== 45-camera.js ===== */
+/* ==========================================================================
+   45 · 镜头（Camera）
+   —— 让「正在延伸的线路」始终处于画面中央：视野跨度由已绘制的弧长反推，
+      连续拉远 → 像镜头特写逐步收束到全线；事件之间用「先拉远、平移、再推近」
+      的弧线飞行衔接，全部跑完后再收束为全览。
+   ========================================================================== */
+
+var CAMERA = {
+  minSpan: 2500,         // 最小视野跨度（米）：特写也能看清相邻两站
+  maxSpan: 16000,        // 最大视野跨度（米）
+  spanFactor: 1.7,       // 视野跨度 = 已延伸距离 × 该系数
+  drawIn: 0.85,          // 事件之间的飞行时长
+  holdEnd: 0.22          // 到达终点后的停留
+};
+
+var Camera = {
+  suspended: false,        // 用户手动缩放后暂停自动跟拍，直到下一个事件
+  lastCenter: null,
+  lastZoom: null,
+
+  /** 让「跨度约 span 米」的区域铺满画面可用区域，反推出 zoom */
+  zoomForSpan: function (spanMeters) {
+    var map = App.map;
+    if (!map) return 11;
+    var size = map.getSize();
+    var usable = Math.max(200, Math.min(size.x * 0.82, size.y * 0.70));
+    var lat = map.getCenter().lat;
+    var equatorMpp = 156543.033928;                       // zoom=0 时每像素米数（赤道）
+    var metersPerPixelAtZero = equatorMpp * Math.cos(lat * Math.PI / 180);
+    var zoom = Math.log2(metersPerPixelAtZero * usable / Math.max(spanMeters, 120));
+    return clamp(zoom, 3, 17);
+  },
+
+  /** 直接设置视野（带像素级变化阈值：既保证平滑，又不至于把瓦片请求打爆） */
+  setView: function (center, zoom) {
+    var map = App.map;
+    if (!map) return;
+    var z = Math.round(clamp(zoom, 3, 17) * 10) / 10;      // 量化到 0.1，减少无意义的瓦片重取
+    var cur = map.getCenter();
+    var curZoom = map.getZoom();
+    var scale = 360 / (256 * Math.pow(2, z));              // 每像素经度跨度
+    var latRad = map.getCenter().lat * Math.PI / 180;
+    var lerpX = scale;
+    var lerpY = scale * Math.max(0.2, Math.cos(latRad));
+    var pixels = Math.max(
+      Math.abs(center.lng - cur.lng) / lerpX,
+      Math.abs(center.lat - cur.lat) / lerpY
+    );
+    var zoomDelta = Math.abs(z - curZoom);
+    if (pixels < 5 && zoomDelta < 0.12) return;
+    map.setView(L.latLng(center.lat, center.lng), z, { animate: false });
+    this.lastCenter = center;
+    this.lastZoom = z;
+  },
+
+  /**
+   * 跟拍「起点 → 头部」这一段：
+   * 中心取两者中点，zoom 由跨度反推 —— 线路越长镜头越远，
+   * 于是延伸中的线路始终横在画面中央。
+   */
+  frameSpan: function (startPoint, headPoint, factor) {
+    if (!App.map || Edit.active || this.suspended) return;
+    if (!startPoint || !headPoint) return;
+    var start = L.latLng(startPoint[0], startPoint[1]);
+    var head = L.latLng(headPoint[0], headPoint[1]);
+    var mid = L.latLng((start.lat + head.lat) / 2, (start.lng + head.lng) / 2);
+    var distance = start.distanceTo(head);
+    var span = clamp(distance * (factor || CAMERA.spanFactor), CAMERA.minSpan, CAMERA.maxSpan);
+    this.setView(mid, this.zoomForSpan(span));
+  },
+
+  /**
+   * 弧线飞行：平移的同时先拉远再推近（dip 越大越明显）。
+   * 用于「终点 → 下一条线路起点」的衔接。
+   */
+  flyTo: function (center, zoom, options) {
+    var map = App.map;
+    if (!map) return null;
+    var opts = options || {};
+    var duration = opts.duration === undefined ? CAMERA.drawIn : opts.duration;
+    var from = { lat: map.getCenter().lat, lng: map.getCenter().lng, zoom: map.getZoom() };
+    var to = { lat: center[0], lng: center[1], zoom: zoom };
+    var distance = L.latLng(from.lat, from.lng).distanceTo(L.latLng(to.lat, to.lng));
+    var dip = opts.dip === undefined ? clamp(distance / 14000, 0.35, 1.9) : opts.dip;
+    var self = this;
+    var proxy = { t: 0 };
+    killTweens(proxy);
+    this.suspended = false;
+    return gsap.to(proxy, {
+      t: 1,
+      duration: duration,
+      ease: opts.ease || 'power2.inOut',
+      onUpdate: function () {
+        var t = proxy.t;
+        var zoomNow = from.zoom + (to.zoom - from.zoom) * t - dip * Math.sin(Math.PI * t);
+        self.setView(
+          L.latLng(from.lat + (to.lat - from.lat) * t, from.lng + (to.lng - from.lng) * t),
+          clamp(zoomNow, 3, 17)
+        );
+      }
+    });
+  },
+
+  /** 某一组经纬度点的适配视野（用于全览） */
+  fitTarget: function (points) {
+    var map = App.map;
+    if (!map || !points.length) return null;
+    var bounds = L.latLngBounds(points);
+    var size = map.getSize();
+    var zoom = Math.min(
+      map.getBoundsZoom(bounds, false, L.point(120, 150)),
+      this.zoomForSpan(L.latLng(bounds.getNorthWest()).distanceTo(L.latLng(bounds.getSouthEast())))
+    );
+    return { center: bounds.getCenter(), zoom: clamp(zoom, 3, 17) };
+  },
+
+  /** 用户手动缩放：暂停自动跟拍，避免「越权」抢镜头 */
+  suspend: function () {
+    this.suspended = true;
+  },
+
+  resume: function () {
+    this.suspended = false;
+  }
+};
+
 /* ===== 50-story.js ===== */
 /* ==========================================================================
-   50 · 时间轴：开场 → 逐条线路开通 → 结束（线路数量、顺序由所选线路决定）
-   —— 每次播放都以 Scene.build() 重建场景，天然满足“重播完整复位”
+   50 · 时间轴：按「开通日期」排序的事件纪事 + 镜头叙事
+   - 事件：整条线路开通 / 单个站点单独开通，统一按日期先后播放
+   - 镜头：线路延伸时始终把「起点 → 头部」框在画面中央并逐步拉远（特写感），
+           事件之间先拉远、平移、再推近；全部跑完收束为全览
    ========================================================================== */
 
 var STORY_TIMING = {
   intro: 0.9,            // 遮罩淡出 + HUD 依次上浮
-  lineBase: 1.0,         // 每条线路绘制的基础时长
-  linePerStation: 0.36,  // 每多一站增加的绘制时长
-  lineMin: 2.4,
-  lineMax: 6.2,
-  gap: 0.1,              // 一条线画完到下一次过渡之间的呼吸
-  transition: 0.95,      // 日期翻转 + 线路头切换 + 数据面板切换
-  outro: 0.6
+  travel: 0.8,           // 事件之间的镜头飞行
+  lineBase: 0.75,        // 整线绘制的基础时长
+  linePerStation: 0.28,  // 每多一站增加的绘制时长
+  lineMin: 1.9,
+  lineMax: 4.6,
+  gap: 0.12,             // 一条线画完到下一个事件之间的呼吸
+  stationHold: 1.0,      // 单站开通的停留
+  dateFlip: 0.5,         // 日期翻页耗时（与镜头飞行重叠）
+  outro: 1.2             // 收束到全览
 };
 
-/** 单条线路的绘制时长：站越多、画得越久，但控制在可接受区间 */
+/** 单条线路的绘制时长：站越多画得越久，但控制在可接受区间 */
 function lineDrawDuration(line) {
   var duration = STORY_TIMING.lineBase + STORY_TIMING.linePerStation * line.stations.length;
   return clamp(duration, STORY_TIMING.lineMin, STORY_TIMING.lineMax);
@@ -4513,30 +4847,88 @@ var Story = {
   finished: false,
   phase: -1,
   startedAt: 0,
-  phases: [],
-  slots: [],
+  events: [],
+  openedLines: {},
+  openedStations: {},
+  openedMeters: 0,
+  lastStats: '',
 
-  /** 参与播放的线路下标：勾选 + 至少 2 站 */
+  /** 有没有可播放的内容（勾选线路里至少有一个站）——启动与切城时用来判断 */
   playableLineIndexes: function () {
     var plan = App.plan;
     if (!plan) return [];
     var indexes = [];
     plan.lines.forEach(function (line, index) {
       if (typeof LineSelection !== 'undefined' && !LineSelection.isSelected(line.key)) return;
-      if (line.stations.length < 2) return;
+      if (!line.stations.length) return;
       indexes.push(index);
     });
     return indexes;
   },
 
-  /** 当前阶段应统计的线路（渐进式累加） */
-  phaseLineIndexes: function () {
-    return this.phases.slice(0, Math.max(1, this.phase + 1));
-  },
+  /* ------------------------------------------------------- 事件表构建 */
 
-  slotFor: function (index) {
-    if (!this.slots[index]) this.slots[index] = { value: 0 };
-    return this.slots[index];
+  /**
+   * 把所有「开通动作」展开成事件，并按日期升序排序：
+   * - 线路事件：日期取自 line.dateText，包含该线路上「随线路开通」的站点
+   * - 站点事件：日期取自 station.openDate（缺省用线路日期），只点亮这一个点
+   */
+  buildEvents: function () {
+    var plan = App.plan;
+    var events = [];
+    this.events = events;
+    if (!plan) return events;
+
+    var seenStation = {};
+    var lineEvents = [];
+    var stationEvents = [];
+
+    plan.lines.forEach(function (line, lineIndex) {
+      if (typeof LineSelection !== 'undefined' && !LineSelection.isSelected(line.key)) return;
+
+      var withLineCount = 0;
+      line.stations.forEach(function (station, stationIndex) {
+        if (station.openMode === 'alone') {
+          if (seenStation[station.key]) return;
+          seenStation[station.key] = true;
+          var rawText = normalizeDateInput(station.openDate) || normalizeDateInput(line.dateText);
+          stationEvents.push({
+            type: 'station',
+            lineIndex: lineIndex,
+            stationKey: station.key,
+            stationIndex: stationIndex,
+            dateText: rawText || '—',
+            dateValue: parseDateValue(rawText || line.dateText),
+            order: stationEvents.length
+          });
+          return;
+        }
+        withLineCount += 1;
+      });
+
+      if (withLineCount > 0) {
+        lineEvents.push({
+          type: 'line',
+          lineIndex: lineIndex,
+          dateText: normalizeDateInput(line.dateText) || line.dateText || '—',
+          dateValue: parseDateValue(line.dateText),
+          order: lineEvents.length
+        });
+      }
+    });
+
+    var all = lineEvents.concat(stationEvents);
+    this.events = all;
+    all.sort(function (a, b) {
+      if (a.dateValue !== b.dateValue) {
+        if (a.dateValue === Infinity) return 1;
+        if (b.dateValue === Infinity) return -1;
+        return a.dateValue - b.dateValue;
+      }
+      if (a.type !== b.type) return a.type === 'line' ? -1 : 1;   // 同日：先整线后单站
+      return a.order - b.order;
+    });
+    return all;
   },
 
   /* --------------------------------------------------------------- 播放 */
@@ -4545,23 +4937,21 @@ var Story = {
     if (!App.plan) return null;
     this.reset();
 
-    // 记录“多快开场”：performance.now() 即页面导航以来的毫秒数
     this.startedAt = Math.round(performance.now());
-
     Scene.build(App.plan);
+    Scene.openedLineKeys = {};
     setMapLocked(true);
+    Camera.resume();
 
     var self = this;
     var timing = STORY_TIMING;
-    var phases = this.playableLineIndexes();
-    this.phases = phases;
-
-    var firstIndex = phases.length ? phases[0] : 0;
-    this.phase = 0;
-    Scene.updateHeader(firstIndex);
-    Scene.updateStats([firstIndex]);
-    Scene.updateCredit();
+    var events = this.buildEvents();
     this.playing = true;
+    // 重播/开播时数据面板清零，随后随事件累加；顶栏/版权先切到首个事件
+    this.lastStats = '';
+    Scene.applyStats({ lines: 0, stations: 0, km: 0 });
+    Scene.updateCredit();
+    if (events.length) this.applyHeader(events[0]);
 
     var tl = gsap.timeline({
       defaults: { overwrite: 'auto' },
@@ -4586,111 +4976,254 @@ var Story = {
       tl.from(hudItems, { y: 16, opacity: 0, duration: 0.85, stagger: 0.07, ease: 'power3.out' }, 0.05);
     }
 
-    if (!phases.length) {
-      // 没有可播放线路（全空或未勾选）：只做开场，停在进行态
+    if (!events.length) {
+      Scene.updateStats([]);
       tl.call(function () { self.finished = true; self.playing = false; }, null, 0.6);
       return tl;
     }
 
-    var cursor = timing.intro + 0.1;
+    // 开场先给全览，第一个事件再飞入特写
+    Scene.fit(false);
+    var cursor = timing.intro + 0.05;
 
-    phases.forEach(function (lineIndex, k) {
-      var line = App.plan.lines[lineIndex];
+    events.forEach(function (event, index) {
+      var line = App.plan.lines[event.lineIndex];
       if (!line) return;
+      var isLine = event.type === 'line';
 
-      if (k > 0) {
-        // ---- 过渡：日期翻页 + 线路头淡出淡入 + 数据面板切换 ----
-        var at = cursor;
-        var dateText = $('#dateText');
-        var lineHead = $('#lineHead');
-        var statsPanel = $('#stats');
+      /* --- 顶栏与日期：与镜头飞行重叠，屏幕中心不动、信息先换 --- */
+      if (index > 0) self.addHeaderFlip(tl, cursor, event);
 
-        if (lineHead) tl.to(lineHead, { opacity: 0, y: -7, duration: 0.26, ease: 'power2.in' }, at);
-        if (dateText) tl.to(dateText, {
-          rotationX: -88,
-          opacity: 0,
-          transformOrigin: '50% 100%',
-          duration: 0.3,
-          ease: 'power2.in'
-        }, at);
-        if (statsPanel) tl.to(statsPanel, { opacity: 0.45, duration: 0.3, ease: 'power2.in' }, at);
+      /* --- 镜头飞行到事件起点 --- */
+      var startPoint = isLine ? self.lineStartPoint(event.lineIndex) : self.stationPoint(event.stationKey);
+      var targetZoom = isLine ? Camera.zoomForSpan(CAMERA.minSpan * 1.25) : Camera.zoomForSpan(1100);
+      var travelAt = cursor + (index > 0 ? 0.14 : 0);
+      tl.call(function () {
+        Camera.flyTo(startPoint, targetZoom, {
+          duration: timing.travel,
+          dip: index === 0 ? 0.6 : undefined
+        });
+      }, null, travelAt);
 
+      var landAt = travelAt + timing.travel;
+
+      if (isLine) {
+        /* --- 整线开通：跟拍绘制 --- */
+        var slot = { value: 0 };
+        var duration = lineDrawDuration(line);
+        tl.call(function () { self.beginLine(event); }, null, landAt - 0.1);
+        tl.to(slot, {
+          value: 1,
+          duration: duration,
+          ease: 'none',
+          onUpdate: function () {
+            var head = Scene.drawProgress(event.lineIndex, slot.value);
+            if (head) Camera.frameSpan(startPoint, head, CAMERA.spanFactor);
+            self.syncRevealedStats();
+          }
+        }, landAt);
+        tl.call(function () { Scene.setHeadVisible(event.lineIndex, false); }, null, landAt + duration + 0.05);
+        cursor = landAt + duration + timing.gap;
+      } else {
+        /* --- 单站开通：只点亮一个点，并做一次缓慢推近 --- */
+        var station = self.findStation(event.stationKey);
+        var pushZoom = targetZoom + 0.45;
         tl.call(function () {
-          self.phase = k;
-          Scene.updateHeader(lineIndex);
-          Scene.updateStats(self.phaseLineIndexes());
-          Scene.updateCredit();
-        }, null, at + 0.3);
-
-        if (dateText) {
-          tl.fromTo(dateText, { rotationX: 88, opacity: 0 }, {
-            rotationX: 0,
-            opacity: 1,
-            duration: 0.42,
-            ease: 'power2.out',
-            clearProps: 'transform'
-          }, at + 0.3);
-        }
-        if (lineHead) tl.to(lineHead, { opacity: 1, y: 0, duration: 0.44, ease: 'power2.out' }, at + 0.32);
-        if (statsPanel) tl.to(statsPanel, { opacity: 1, duration: 0.44, ease: 'power2.out' }, at + 0.32);
-
-        cursor = at + timing.transition;
+          self.beginStation(event);
+          Scene.revealStandalone(event.stationKey);
+          self.syncRevealedStats();
+          self.applyHeader(event);
+        }, null, landAt);
+        tl.call(function () {
+          Camera.flyTo(startPoint, pushZoom, { duration: timing.stationHold - 0.15, dip: 0 });
+        }, null, landAt + 0.05);
+        cursor = landAt + timing.stationHold + timing.gap;
       }
-
-      // ---- 绘制本条线路 ----
-      var slot = self.slotFor(k);
-      slot.value = 0;
-      var duration = lineDrawDuration(line);
-
-      tl.call(function () { self.startPhase(lineIndex, k); }, null, cursor);
-      tl.to(slot, {
-        value: 1,
-        duration: duration,
-        ease: 'none',
-        onUpdate: function () { Scene.drawProgress(lineIndex, slot.value); }
-      }, cursor);
-      tl.call(function () { Scene.setHeadVisible(lineIndex, false); }, null, cursor + duration + 0.05);
-
-      cursor += duration + timing.gap;
     });
 
-    tl.call(function () { self.finish(); }, null, cursor + timing.outro);
+    /* --- 收束：所有事件跑完后拉远到全览 --- */
+    var overview = self.overviewTarget();
+    if (overview) {
+      tl.call(function () {
+        Camera.flyTo([overview.center.lat, overview.center.lng], overview.zoom, {
+          duration: timing.outro,
+          dip: 0.9
+        });
+      }, null, cursor);
+    }
+    tl.call(function () { self.finishAll(); }, null, cursor + timing.outro * 0.7);
     return tl;
   },
 
-  /** 进入某条线的绘制阶段：HEAD 标记出现 + 视图保持不变 */
-  startPhase: function (lineIndex, phase) {
-    var line = App.plan && App.plan.lines[lineIndex];
+  /* ------------------------------------------------------------ 事件应用 */
+
+  addHeaderFlip: function (tl, at, event) {
+    var self = this;
+    var dateText = $('#dateText');
+    var lineHead = $('#lineHead');
+    var statsPanel = $('#stats');
+    var flip = STORY_TIMING.dateFlip;
+
+    if (lineHead) tl.to(lineHead, { opacity: 0, y: -7, duration: 0.24, ease: 'power2.in' }, at);
+    if (dateText) tl.to(dateText, {
+      rotationX: -88,
+      opacity: 0,
+      transformOrigin: '50% 100%',
+      duration: 0.26,
+      ease: 'power2.in'
+    }, at);
+    if (statsPanel) tl.to(statsPanel, { opacity: 0.45, duration: 0.26, ease: 'power2.in' }, at);
+
+    tl.call(function () { self.applyHeader(event); }, null, at + 0.26);
+
+    if (dateText) {
+      tl.fromTo(dateText, { rotationX: 88, opacity: 0 }, {
+        rotationX: 0,
+        opacity: 1,
+        duration: 0.4,
+        ease: 'power2.out',
+        clearProps: 'transform'
+      }, at + 0.26);
+    }
+    if (lineHead) tl.to(lineHead, { opacity: 1, y: 0, duration: 0.42, ease: 'power2.out' }, at + 0.28);
+    if (statsPanel) tl.to(statsPanel, { opacity: 1, duration: 0.42, ease: 'power2.out' }, at + 0.28);
+    return at + flip;
+  },
+
+  /** 顶栏 / 日期 / 数据面板切到当前事件 */
+  applyHeader: function (event) {
+    if (!event) return;
+    var line = App.plan.lines[event.lineIndex];
     if (!line) return;
-    this.phase = phase;
-    if (line.stations.length < 2) return;
-    Scene.setHeadVisible(lineIndex, true);
-    var route = Scene.routes[line.key];
+    if (event.type === 'line') {
+      Scene.updateHeader(event.lineIndex);
+      var dateEl = $('#dateText');
+      if (dateEl) dateEl.textContent = event.dateText;
+    } else {
+      Scene.updateStationHeader(event.lineIndex, this.findStation(event.stationKey), event.dateText);
+    }
+    this.syncRevealedStats();
+  },
+
+  beginLine: function (event) {
+    var line = App.plan.lines[event.lineIndex];
+    if (!line) return;
+    this.openedLines[event.lineIndex] = true;
+    if (Scene.openedLineKeys) Scene.openedLineKeys[line.key] = true;
     var geometry = Scene.geometries[line.key];
+    if (geometry && isFiniteNumber(geometry.totalMeters)) this.openedMeters += geometry.totalMeters;
+    Scene.setHeadVisible(event.lineIndex, true);
+    var route = Scene.routes[line.key];
     if (route && geometry && geometry.render.length) {
-      var head = geometry.render[0];
-      route.head.setLatLng(L.latLng(head[0], head[1]));
+      route.head.setLatLng(L.latLng(geometry.render[0][0], geometry.render[0][1]));
       route.head.setOpacity(1);
     }
+    this.phase = event.lineIndex;
+    this.applyHeader(event);
   },
 
-  /** 结束态：保持完成态，头部标记淡出 */
-  finish: function () {
+  beginStation: function (event) {
+    var line = App.plan.lines[event.lineIndex];
+    if (!line) return;
+    this.phase = event.lineIndex;
+    this.openedStations[event.stationKey] = true;
+    this.syncRevealedStats();
+  },
+
+  /** 面板上的站点数跟随「已点亮的点」变化 */
+  syncRevealedStats: function () {
+    var total = 0;
+    var self = this;
+    Object.keys(Scene.stations).forEach(function (key) {
+      if (Scene.stations[key].state !== 'hidden') total += 1;
+    });
+    var lineCount = Object.keys(this.openedLines).length;
+    var signature = lineCount + '/' + total + '/' + Math.round(this.openedMeters / 1000);
+    if (signature === this.lastStats) return;
+    this.lastStats = signature;
+    Scene.applyStats({
+      lines: lineCount,
+      stations: total,
+      km: Math.round(this.openedMeters / 1000)
+    });
+  },
+
+  /* ------------------------------------------------------------ 几何工具 */
+
+  findStation: function (stationKey) {
     var plan = App.plan;
-    if (!plan) return;
-    plan.lines.forEach(function (_, index) { Scene.setHeadVisible(index, false); });
-    var phases = this.phases.length ? this.phases : plan.lines.map(function (_, index) { return index; });
-    var last = phases[phases.length - 1];
-    this.phase = phases.length - 1;
-    Scene.updateHeader(last);
-    Scene.updateStats(phases);
+    if (!plan) return null;
+    for (var i = 0; i < plan.lines.length; i += 1) {
+      for (var j = 0; j < plan.lines[i].stations.length; j += 1) {
+        if (plan.lines[i].stations[j].key === stationKey) return plan.lines[i].stations[j];
+      }
+    }
+    return null;
+  },
+
+  /** 渲染坐标下的线路起点 */
+  lineStartPoint: function (lineIndex) {
+    var line = App.plan.lines[lineIndex];
+    var geometry = line ? Scene.geometries[line.key] : null;
+    if (!geometry || !geometry.render.length) return [App.map.getCenter().lat, App.map.getCenter().lng];
+    return geometry.render[0];
+  },
+
+  stationPoint: function (stationKey) {
+    var node = Scene.stations[stationKey];
+    if (!node) return [App.map.getCenter().lat, App.map.getCenter().lng];
+    var latlng = node.marker.getLatLng();
+    return [latlng.lat, latlng.lng];
+  },
+
+  /** 全览：所有已开通线路的渲染点 */
+  overviewTarget: function () {
+    var self = this;
+    var points = [];
+    Object.keys(this.openedLines).forEach(function (index) {
+      var line = App.plan.lines[Number(index)];
+      var geometry = line ? Scene.geometries[line.key] : null;
+      if (geometry) points = points.concat(geometry.render);
+    });
+    Object.keys(this.openedStations).forEach(function (key) {
+      var node = Scene.stations[key];
+      if (node) {
+        var latlng = node.marker.getLatLng();
+        points.push([latlng.lat, latlng.lng]);
+      }
+    });
+    if (!points.length) {
+      // 兜底：整张网络
+      Object.keys(Scene.geometries).forEach(function (key) {
+        points = points.concat(Scene.geometries[key].render);
+      });
+    }
+    return Camera.fitTarget(points);
+  },
+
+  /** 收尾：顶栏停在最后一个事件，数据为全量 */
+  finishAll: function () {
+    var events = this.events;
+    var last = events[events.length - 1];
+    this.syncRevealedStats();
+    if (last) {
+      var line = App.plan.lines[last.lineIndex];
+      if (line) {
+        if (last.type === 'line') Scene.updateHeader(last.lineIndex);
+        else Scene.updateStationHeader(last.lineIndex, this.findStation(last.stationKey), last.dateText);
+      }
+    }
     Scene.updateCredit();
-    // 站点状态变化（换乘/城际胶囊出现）会让标签变宽，收尾时再避让一次
     Scene.resolveLabelSides();
     this.finished = true;
+    this.playing = false;
   },
 
-  /** 跳过动画：直接渲染到终态（长线路网络时很好用） */
+  /** 兼容旧调用：结束态 */
+  finish: function () {
+    this.finishAll();
+  },
+
   skip: function () {
     if (!this.tl || this.finished) return;
     this.tl.progress(1, false);
@@ -4704,8 +5237,12 @@ var Story = {
     this.playing = false;
     this.finished = false;
     this.phase = -1;
-    this.phases = [];
-    this.slots = [];
+    this.events = [];
+    this.openedLines = {};
+    this.openedStations = {};
+    this.openedMeters = 0;
+    this.lastStats = '';
+    Camera.suspended = false;
 
     var hud = [$('#dateText'), $('#lineHead'), $('#stats'), $('#timeCapsule'), $('#credit'), $('#replayBtn'), $('#skipBtn'), $('#controls'), $('#zoomCtl')];
     hud.forEach(function (el) {
@@ -4722,7 +5259,6 @@ var Story = {
     }
   },
 
-  /** 退出播放（进入编辑 / 切换城市时调用），不保留任何动画状态 */
   stop: function () {
     killTimeline(this.tl);
     this.tl = null;
@@ -4893,7 +5429,7 @@ var Edit = {
           state: state,
           numberText: formatStationNumber(stationIndex + 1),
           draggable: true,
-          transferColors: transferColorVars(App.plan, station.key),
+          ringStyle: ringStyleVars(App.plan, station.key),
           hasRail: !!info.types.intercity,
           isRailOnly: !!info.types.intercity && !info.types.metro
         });
@@ -5210,7 +5746,7 @@ var Edit = {
       '<div class="bar-group">' +
         (canAdd ? '<button data-act="add-metro" title="新建地铁线路">＋地铁</button>' : '') +
         (canAdd ? '<button data-act="add-intercity" title="新建城际铁路">＋城际</button>' : '') +
-        '<button data-act="delete-line" title="删除当前线路">删除本线</button>' +
+        '<button data-act="line-settings" title="线路名称 / 类型 / 开通日期 / 配色">线路设置</button>' +
       '</div>' +
       '<div class="bar-group">' +
         '<button data-act="reset">恢复默认</button>' +
@@ -5248,18 +5784,11 @@ var Edit = {
     toast('已新建「' + line.name + '」，点击地图添加站点');
   },
 
-  /** 删除当前线路（二次点击确认，至少保留一条） */
+  /** 删除当前线路（至少保留一条；二次确认由调用方处理） */
   deleteLine: function () {
     var plan = App.plan;
     if (!plan) return;
     if (plan.lines.length <= 1) { toast('至少保留 1 条线路'); return; }
-    var now = Date.now();
-    if (now - this.deleteLineArmed > 2600) {
-      this.deleteLineArmed = now;
-      toast('再次点击「删除本线」以确认');
-      return;
-    }
-    this.deleteLineArmed = 0;
     var removed = plan.lines.splice(this.lineIndex, 1)[0];
     this.lineIndex = clamp(this.lineIndex, 0, plan.lines.length - 1);
     this.selectedKey = null;
@@ -5304,6 +5833,8 @@ var Edit = {
     var occurrences = countStationOccurrences(App.plan, station.key);
     var lineName = line.name;
     var ownerLine = findLineOfStation(App.plan, station.key);
+    var aloneMode = station.openMode === 'alone';
+    var dateValue = aloneMode ? (station.openDate || '') : '';
 
     card.innerHTML = '' +
       '<div class="card-head">' +
@@ -5311,11 +5842,23 @@ var Edit = {
         '<span class="card-line"><i style="--line-color:' + escapeHtml(ownerLine ? ownerLine.color : line.color) + '"></i>' +
           escapeHtml(ownerLine ? ownerLine.name : lineName) + '</span>' +
         (occurrences > 1 ? '<span class="card-tag">换乘站</span>' : '') +
+        (aloneMode ? '<span class="card-tag card-tag-alone">单独开通</span>' : '') +
         '<button class="card-close" data-act="close" aria-label="收起">×</button>' +
       '</div>' +
       '<label class="card-field">' +
         '<span>站名</span>' +
         '<input type="text" data-act="name" maxlength="24" value="' + escapeHtml(station.name) + '" />' +
+      '</label>' +
+      '<div class="card-field">' +
+        '<span>开通方式</span>' +
+        '<select data-act="open-mode">' +
+          '<option value="line"' + (aloneMode ? '' : ' selected') + '>随线路一起开通</option>' +
+          '<option value="alone"' + (aloneMode ? ' selected' : '') + '>单独开通</option>' +
+        '</select>' +
+      '</div>' +
+      '<label class="card-field"' + (aloneMode ? '' : ' style="display:none"') + '>' +
+        '<span>开通日期</span>' +
+        '<input type="text" data-act="open-date" placeholder="2035.06.01" value="' + escapeHtml(dateValue) + '" />' +
       '</label>' +
       '<label class="card-check">' +
         '<input type="checkbox" data-act="ghost"' + (station.ghost ? ' checked' : '') + ' />' +
@@ -5329,6 +5872,115 @@ var Edit = {
       '</div>';
 
     card.classList.add('is-on');
+  },
+
+  /* --------------------------------------------------- 站点开通方式 / 日期 */
+
+  /** 设置该站「随线路开通 / 单独开通」 */
+  setOpenMode: function (mode) {
+    if (!this.selectedKey) return;
+    var next = mode === 'alone' ? 'alone' : 'line';
+    var key = this.selectedKey;
+    var fallbackDate = '';
+    App.plan.lines.forEach(function (line) {
+      line.stations.forEach(function (station) {
+        if (station.key !== key) return;
+        station.openMode = next;
+        if (next === 'alone') {
+          if (!station.openDate) station.openDate = normalizeDateInput(line.dateText) || '';
+          fallbackDate = station.openDate;
+        } else {
+          station.openDate = '';
+        }
+      });
+    });
+    this.rebuild();
+    this.applySelection();
+    this.syncCard();
+    this.persist();
+    toast(next === 'alone'
+      ? '该站将单独开通' + (fallbackDate ? '（' + fallbackDate + '）' : '，请填写开通日期')
+      : '该站随线路一起开通');
+  },
+
+  /** 设置单独开通日期（YYYY.MM.DD） */
+  setOpenDate: function (value) {
+    if (!this.selectedKey) return;
+    var normalized = normalizeDateInput(value);
+    if (!normalized) {
+      toast('日期格式应为 YYYY.MM.DD');
+      this.syncCard();
+      return;
+    }
+    var key = this.selectedKey;
+    App.plan.lines.forEach(function (line) {
+      line.stations.forEach(function (station) {
+        if (station.key !== key) return;
+        station.openMode = 'alone';
+        station.openDate = normalized;
+      });
+    });
+    this.syncCard();
+    this.persist();
+    toast('单独开通日期：' + normalized);
+  },
+
+  /* ------------------------------------------------------- 线路设置面板 */
+
+  openLineSheet: function () {
+    var line = App.plan && App.plan.lines[this.lineIndex];
+    if (!line) return;
+    $('#lineNameInput').value = line.name;
+    $('#lineBadgeInput').value = line.badge;
+    $('#lineTypeSelect').value = line.type || 'metro';
+    $('#lineDateInput').value = line.dateText || '';
+    $('#lineStatusSelect').value = line.status || '开通运营';
+    var row = $('#lineColorRow');
+    if (row) {
+      row.innerHTML = LINE_COLOR_PALETTE.map(function (color) {
+        return '<button type="button" class="color-dot' + (color.toLowerCase() === String(line.color).toLowerCase() ? ' is-on' : '') +
+          '" data-color="' + escapeHtml(color) + '" style="--dot-color:' + escapeHtml(color) + '" aria-label="' + escapeHtml(color) + '"></button>';
+      }).join('');
+    }
+    openSheet('lineSheet');
+  },
+
+  saveLineSheet: function () {
+    var line = App.plan && App.plan.lines[this.lineIndex];
+    if (!line) return;
+    var name = String($('#lineNameInput').value || '').trim().slice(0, 24);
+    var badge = String($('#lineBadgeInput').value || '').trim().slice(0, 4);
+    var dateText = normalizeDateInput($('#lineDateInput').value);
+    if (!name) { toast('线路名不能为空'); return; }
+    if (!dateText) { toast('开通日期格式应为 YYYY.MM.DD'); return; }
+    line.name = name;
+    line.badge = badge || line.badge;
+    line.type = $('#lineTypeSelect').value === 'intercity' ? 'intercity' : 'metro';
+    line.dateText = dateText;
+    line.status = $('#lineStatusSelect').value;
+    var picked = document.querySelector('#lineColorRow .color-dot.is-on');
+    if (picked) line.color = picked.dataset.color;
+    closeSheet('lineSheet');
+    this.renderBar();
+    this.rebuild();
+    this.persist();
+    toast('已保存「' + line.name + '」设置');
+  },
+
+  /** 面板里的「删除本线」：第一次点变成「确认删除？」，二次点击才真正删除 */
+  deleteLineFromSheet: function () {
+    var button = $('#deleteLineBtn');
+    var now = Date.now();
+    if (!this.deleteLineArmed || now - this.deleteLineArmed > 3200) {
+      this.deleteLineArmed = now;
+      if (button) button.textContent = '确认删除？';
+      toast('再次点击「确认删除？」以移除当前线路');
+      return;
+    }
+    this.deleteLineArmed = 0;
+    if (button) button.textContent = '删除本线';
+    closeSheet('lineSheet');
+    this.deleteLine();
   },
 
   hideCard: function () {
@@ -5598,10 +6250,11 @@ var ZoomUI = {
     this.syncScale();
   },
 
-  /** 播放期间也允许用按钮缩放（禁止的是手势拖拽/滚轮） */
+  /** 播放期间也允许用按钮缩放（禁止的是手势拖拽/滚轮）；手动缩放会暂停自动跟拍 */
   step: function (delta) {
     var map = App.map;
     if (!map) return;
+    if (typeof Camera !== 'undefined') Camera.suspend();
     var current = map.getZoom();
     var next = clamp(current + delta, map.getMinZoom(), map.getMaxZoom());
     if (next === current) return;
@@ -5618,6 +6271,7 @@ var ZoomUI = {
   fit: function () {
     var map = App.map;
     if (!map) return;
+    if (typeof Camera !== 'undefined') Camera.suspend();
     if (Edit.active) {
       var bounds = L.latLngBounds([]);
       (App.plan ? App.plan.lines : []).forEach(function (line) {
@@ -5936,8 +6590,8 @@ function createMap() {
     zoom: 11,
     zoomControl: false,
     attributionControl: false,
-    zoomSnap: 1,
-    zoomDelta: 1,
+    zoomSnap: 0,          // 连续缩放：镜头叙事需要小数级别缩放
+    zoomDelta: 0.75,
     minZoom: 3,
     maxZoom: 17,
     worldCopyJump: false,
@@ -5979,7 +6633,7 @@ function bindHud() {
   var bar = $('#editBar');
   if (bar) bar.addEventListener('click', onEditBarClick);
 
-  // 编辑卡片：点击 / 输入 / 勾选 全部委托
+  // 编辑卡片：点击 / 输入 / 勾选 / 开通方式 全部委托
   var card = $('#editCard');
   if (card) {
     card.addEventListener('click', onEditCardClick);
@@ -5989,7 +6643,31 @@ function bindHud() {
     });
     card.addEventListener('change', function (event) {
       var target = event.target;
-      if (target && target.dataset && target.dataset.act === 'ghost') Edit.toggleGhost(target.checked);
+      if (!target || !target.dataset) return;
+      if (target.dataset.act === 'ghost') Edit.toggleGhost(target.checked);
+      else if (target.dataset.act === 'open-mode') Edit.setOpenMode(target.value);
+      else if (target.dataset.act === 'open-date') Edit.setOpenDate(target.value);
+    });
+    card.addEventListener('keydown', function (event) {
+      var target = event.target;
+      if (target && target.dataset && target.dataset.act === 'open-date' && event.key === 'Enter') {
+        Edit.setOpenDate(target.value);
+      }
+    });
+  }
+
+  // 线路设置面板
+  var saveLineBtn = $('#saveLineBtn');
+  if (saveLineBtn) saveLineBtn.addEventListener('click', function () { Edit.saveLineSheet(); });
+  var deleteLineBtn = $('#deleteLineBtn');
+  if (deleteLineBtn) deleteLineBtn.addEventListener('click', function () { Edit.deleteLineFromSheet(); });
+  var colorRow = $('#lineColorRow');
+  if (colorRow) {
+    colorRow.addEventListener('click', function (event) {
+      var dot = event.target && event.target.closest ? event.target.closest('.color-dot') : null;
+      if (!dot) return;
+      Array.prototype.forEach.call(colorRow.querySelectorAll('.color-dot'), function (el) { el.classList.remove('is-on'); });
+      dot.classList.add('is-on');
     });
   }
 
@@ -6032,6 +6710,7 @@ function onEditBarClick(event) {
   else if (act === 'add-metro') Edit.addLine('metro');
   else if (act === 'add-intercity') Edit.addLine('intercity');
   else if (act === 'delete-line') Edit.deleteLine();
+  else if (act === 'line-settings') Edit.openLineSheet();
   else if (act === 'done') Edit.done();
 }
 
@@ -6054,7 +6733,7 @@ function onViewportChange() {
     Edit.resolveLabelSides();
     return;
   }
-  if (Scene.built) Scene.fit(false);
+  if (Scene.built && !Story.playing) Scene.fit(false);
 }
 
 function showFatal(message) {
@@ -6144,6 +6823,7 @@ window.__METRO__ = {
   App: App,
   Scene: Scene,
   Story: Story,
+  Camera: Camera,
   Edit: Edit,
   Basemap: Basemap,
   CityUI: CityUI,
@@ -6199,7 +6879,10 @@ window.__METRO__ = {
         playing: Story.playing,
         finished: Story.finished,
         phase: Story.phase,
-        phases: Story.phases.slice(),
+        events: (Story.events || []).map(function (event) { return event.type + ':' + event.dateText; }),
+        eventCount: (Story.events || []).length,
+        lineEventCount: (Story.events || []).filter(function (event) { return event.type === 'line'; }).length,
+        stationEventCount: (Story.events || []).filter(function (event) { return event.type === 'station'; }).length,
         startedAt: Story.startedAt || null
       },
       editing: Edit.active,

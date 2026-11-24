@@ -13,6 +13,7 @@ var Scene = {
   stations: {},
   bounds: null,
   built: false,
+  openedLineKeys: {},
 
   init: function (map) {
     this.map = map;
@@ -148,7 +149,7 @@ var Scene = {
     var marker = createStationMarker(station, line, {
       state: 'hidden',
       numberText: formatStationNumber(stationIndex + 1),
-      transferColors: transferColorVars(this.plan, station.key),
+      ringStyle: ringStyleVars(this.plan, station.key),
       hasRail: railFlags.hasRail,
       isRailOnly: railFlags.isRailOnly
     });
@@ -161,7 +162,6 @@ var Scene = {
       halo: el ? el.querySelector('.st-halo') : null,
       ring: el ? el.querySelector('.st-ring') : null,
       dot: el ? el.querySelector('.st-dot') : null,
-      transfer: el ? el.querySelector('.st-transfer') : null,
       label: el ? el.querySelector('.st-label') : null,
       labelInner: el ? el.querySelector('.st-label-inner') : null,
       name: el ? el.querySelector('.st-name') : null,
@@ -200,6 +200,7 @@ var Scene = {
       route.head.setLatLng(L.latLng(slice.head[0], slice.head[1]));
       route.head.setOpacity(1);
     }
+    var headPoint = slice.head;
 
     // 站点：弧长比例已到达 → 依次点亮（跨线共用站触发 ghost → transfer 变换）
     for (var i = 0; i < line.stations.length; i += 1) {
@@ -210,6 +211,8 @@ var Scene = {
 
       var node = this.stations[station.key];
       if (!node) continue;
+      // 单独开通的站点由自己的事件点亮，不在画线时提前出现
+      if (station.openMode === 'alone') continue;
       var numberText = formatStationNumber(i + 1);
       var crossLine = node.lineKey !== line.key;
 
@@ -226,6 +229,7 @@ var Scene = {
       if (node.revealed) continue;
       this.revealStation(station.key, station.ghost ? 'ghost' : 'opened', numberText, i);
     }
+    return headPoint;
   },
 
   /** 点亮站点：halo → ring → dot → label 依次入场（halo 保持克制的低透明度） */
@@ -272,7 +276,8 @@ var Scene = {
     }
   },
 
-  /** ghost → transfer 的变换动画（清水塘在 2 号线经过时触发） */
+  /** ghost → transfer 的变换动画（清水塘在 2 号线经过时触发）
+      —— 换乘用单点多色圆环表示，切换时做一次「收束 → 弹开」的强调 */
   animateGhostToTransfer: function (stationKey, numberText) {
     var self = this;
     var node = this.stations[stationKey];
@@ -282,24 +287,37 @@ var Scene = {
     applyStationState(node, 'transfer', numberText);
     if (refs.st) refs.st.style.opacity = '1';
 
-    if (!window.gsap || !refs.transfer) return;
+    if (!window.gsap || !refs.ring) return;
 
-    killTweens([refs.transfer, refs.ring, refs.labelInner, refs.halo]);
+    killTweens([refs.ring, refs.labelInner, refs.halo]);
     var timeline = gsap.timeline();
-    if (wasGhost) {
-      // 虚线环收束 → 换乘标志展开
-      timeline.fromTo(refs.halo, { opacity: haloOpacityFor('ghost'), scale: 1 }, {
-        opacity: haloOpacityFor('transfer'),
-        scale: 1.35,
-        duration: 0.5,
-        ease: 'power2.out'
-      }, 0);
-      timeline.fromTo(refs.ring, { scale: 0.9 }, { scale: 1, duration: 0.45, ease: 'back.out(2)' }, 0.05);
-    }
-    timeline.fromTo(refs.transfer, { opacity: 0, scale: 0.3 }, { opacity: 1, scale: 1, duration: 0.55, ease: 'back.out(1.8)' }, 0.1);
+    timeline.fromTo(refs.ring, { scale: wasGhost ? 0.7 : 0.86, opacity: 0.35 }, {
+      scale: 1,
+      opacity: 1,
+      duration: 0.52,
+      ease: 'back.out(2)'
+    }, 0);
+    timeline.fromTo(refs.halo, { scale: wasGhost ? 1 : 0.9 }, {
+      scale: 1.35,
+      duration: 0.26,
+      ease: 'power2.out',
+      yoyo: true,
+      repeat: 1
+    }, 0);
     timeline.fromTo(refs.labelInner, { opacity: 0.35, y: 3 }, { opacity: 1, y: 0, duration: 0.5, ease: 'power2.out' }, 0.16);
     // 胶囊切换后标签变宽，重新做一次避让
     timeline.call(function () { self.resolveLabelSides(); }, null, 0.7);
+  },
+
+  /** 单个站点开通（不画线）：只点亮一个点 */
+  revealStandalone: function (stationKey) {
+    var node = this.stations[stationKey];
+    if (!node || node.revealed) return false;
+    var openedLines = this.openedLineKeys || {};
+    var sharedOpened = node.lineKeys.filter(function (key) { return openedLines[key]; }).length;
+    var mode = node.station.ghost ? 'ghost' : (node.lineKeys.length > 1 && sharedOpened >= 2 ? 'transfer' : 'opened');
+    var numberText = formatStationNumber((node.occurrences[0] ? node.occurrences[0].stationIndex : 0) + 1);
+    return this.revealStation(stationKey, mode, numberText, node.occurrences[0] ? node.occurrences[0].stationIndex : 0);
   },
 
   setHeadVisible: function (lineIndex, visible) {
@@ -406,7 +424,7 @@ var Scene = {
       Object.keys(this.stations).forEach(function (key) {
         var node = self.stations[key];
         if (!node.refs) return;
-        [node.refs.st, node.refs.halo, node.refs.ring, node.refs.dot, node.refs.transfer, node.refs.labelInner]
+        [node.refs.st, node.refs.halo, node.refs.ring, node.refs.dot, node.refs.labelInner]
           .forEach(function (el) { killTweens(el); });
       });
       Object.keys(this.routes).forEach(function (key) {
@@ -464,14 +482,9 @@ var Scene = {
     }
   },
 
-  /** 数据面板：线路数 / 站点数 / 里程，全部实时计算 */
-  updateStats: function (activeLineIndexes) {
+  /** 数据面板数值写入（线路数 / 站点数 / 里程） */
+  applyStats: function (stats) {
     var self = this;
-    var plan = this.plan;
-    if (!plan) return;
-    var lines = activeLineIndexes.map(function (index) { return plan.lines[index]; }).filter(Boolean);
-    var stats = computeStats(lines, this.geometries);
-
     var lineEl = $('#statLines');
     var stationEl = $('#statStations');
     var kmEl = $('#statKm');
@@ -489,6 +502,29 @@ var Scene = {
       gsap.fromTo(panel, { opacity: 0.55 }, { opacity: 1, duration: 0.45, ease: 'power2.out' });
     }
     return stats;
+  },
+
+  /** 按已开通线路统计（未单独开通的站点随线路计入） */
+  updateStats: function (activeLineIndexes, extraStationKeys) {
+    var plan = this.plan;
+    if (!plan) return;
+    var lines = activeLineIndexes.map(function (index) { return plan.lines[index]; }).filter(Boolean);
+    return this.applyStats(computeStats(lines, this.geometries, extraStationKeys));
+  },
+
+  /** 单个站点开通事件的顶栏（保留所属线路的徽章与配色） */
+  updateStationHeader: function (lineIndex, station, dateText) {
+    var plan = this.plan;
+    if (!plan || !station) return;
+    this.updateHeader(lineIndex);
+    var dateEl = $('#dateText');
+    if (dateEl) dateEl.textContent = dateText;
+    var nameEl = $('#lineName');
+    if (nameEl) nameEl.textContent = station.name;
+    var rangeEl = $('#lineRange');
+    if (rangeEl) rangeEl.textContent = (plan.lines[lineIndex] ? plan.lines[lineIndex].name : '') + ' · 单独开通';
+    var statusEl = $('#lineStatus');
+    if (statusEl) statusEl.textContent = '站点开通';
   },
 
   updateCredit: function () {
@@ -515,7 +551,8 @@ function haloOpacityFor(state) {
   return HALO_OPACITY[state] === undefined ? HALO_OPACITY.opened : HALO_OPACITY[state];
 }
 
-/** 站点标记结构：halo / ring / dot / transfer / label（站名 + 序号胶囊 + 类型/状态胶囊） */
+/** 站点标记结构：halo / ring / dot / label（站名 + 序号胶囊 + 类型/状态胶囊）
+    —— 换乘站用「单点多色圆环」，不再画两个点 */
 function stationMarkup(station, line, options) {
   var opts = options || {};
   var side = LABEL_SIDES.indexOf(station.side) >= 0 ? station.side : 'bottom';
@@ -528,15 +565,14 @@ function stationMarkup(station, line, options) {
   if (opts.isRailOnly) classes.push('is-rail');
   if (opts.hasRail) classes.push('has-rail');
 
-  var transferColors = opts.transferColors || '';
-  var style = '--line-color:' + escapeHtml(color) + ';' + (transferColors ? transferColors : '');
+  var ringStyle = opts.ringStyle || '';
+  var style = '--line-color:' + escapeHtml(color) + ';' + ringStyle;
 
   return '' +
     '<div class="' + classes.join(' ') + '" data-station-key="' + escapeHtml(station.key) + '" style="' + style + '">' +
       '<span class="st-halo"></span>' +
       '<span class="st-ring"></span>' +
       '<span class="st-dot"></span>' +
-      '<span class="st-transfer"><i class="st-transfer-a"></i><i class="st-transfer-b"></i></span>' +
       '<span class="st-label">' +
         '<span class="st-label-inner">' +
           '<span class="st-name">' + escapeHtml(station.name) + '</span>' +
@@ -580,14 +616,35 @@ function applyStationState(node, state, numberText) {
   if (numberText && node.refs.number) node.refs.number.textContent = numberText;
 }
 
-/** 换乘站的双色：取该站所在两条线路的颜色 */
-function transferColorVars(plan, stationKey) {
+/** 换乘站配色：按经过该站的线路颜色把圆环等分成若干段（单点展示，不再画两个点） */
+function stationLineColors(plan, stationKey) {
   var colors = [];
   (plan ? plan.lines : []).forEach(function (line) {
     var hit = line.stations.some(function (station) { return station.key === stationKey; });
     if (hit && colors.indexOf(line.color) < 0) colors.push(line.color);
   });
-  return '--c1:' + escapeHtml(colors[0] || '#e60012') + ';--c2:' + escapeHtml(colors[1] || colors[0] || '#0068b7') + ';';
+  return colors;
+}
+
+function conicRingGradient(colors) {
+  if (!colors || colors.length < 2) return '';
+  var gap = 6;                                  // 段间白色留白（度）
+  var step = 360 / colors.length;
+  var parts = [];
+  colors.forEach(function (color, index) {
+    var start = index * step + gap / 2;
+    var end = (index + 1) * step - gap / 2;
+    parts.push(color + ' ' + start.toFixed(1) + 'deg ' + end.toFixed(1) + 'deg');
+    parts.push('#ffffff ' + end.toFixed(1) + 'deg ' + (end + gap).toFixed(1) + 'deg');
+  });
+  return 'conic-gradient(from -90deg, ' + parts.join(', ') + ')';
+}
+
+/** 换乘站的多色圆环：写进 --ring-gradient，换乘态由 CSS 应用 */
+function ringStyleVars(plan, stationKey) {
+  var colors = stationLineColors(plan, stationKey);
+  if (colors.length < 2) return '';
+  return '--ring-gradient:' + conicRingGradient(colors) + ';';
 }
 
 /* --------------------------------------------------- 标签方位求解（避让） */

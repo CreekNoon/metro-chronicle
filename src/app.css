@@ -460,7 +460,18 @@ body {
   background: rgba(255, 255, 255, 0.72);
 }
 
-.st.is-transfer .st-ring { display: none; }
+/* 换乘站：单点多色圆环（按各线路颜色分段），不再用两个点表示 */
+.st.is-transfer .st-ring {
+  width: 17px;
+  height: 17px;
+  margin: -8.5px 0 0 -8.5px;
+  border: 0;
+  background-image: var(--ring-gradient, conic-gradient(#e60012 0 180deg, #0068b7 180deg 360deg));
+  background-color: transparent;
+  box-shadow: 0 0 0 1.2px rgba(255, 255, 255, 0.9), 0 1px 3px rgba(18, 22, 27, 0.18);
+}
+
+.st.is-transfer .st-halo { background: #4a5462; }
 
 .st-dot {
   width: 5px;
@@ -472,37 +483,14 @@ body {
 }
 
 .st.is-ghost .st-dot { background: #c2c9d1; }
-.st.is-transfer .st-dot { display: none; }
 
-/* 换乘标志：双色互扣圆环（仅 transfer 状态显示） */
-.st-transfer {
-  display: none;
-  width: 20px;
-  height: 20px;
-  margin: -10px 0 0 -10px;
-}
-
-.st.is-transfer .st-transfer { display: block; }
-
-.st-transfer i {
-  position: absolute;
-  top: 50%;
-  width: 11px;
-  height: 11px;
-  margin-top: -5.5px;
-  border: 1.8px solid #fff;
-  border-radius: 50%;
-  box-sizing: border-box;
-}
-
-.st-transfer-a {
-  left: 0;
-  background: var(--c1, #e60012);
-}
-
-.st-transfer-b {
-  right: 0;
-  background: var(--c2, #0068b7);
+/* 换乘站中心留白：多色圆环内是白点，读作「一个站」而不是两个点 */
+.st.is-transfer .st-dot {
+  width: 7px;
+  height: 7px;
+  margin: -3.5px 0 0 -3.5px;
+  background: #fff;
+  box-shadow: inset 0 0 0 1px rgba(18, 22, 27, 0.1);
 }
 
 /* 城际铁路：仅城际服务的站用方形站标（与地铁共站保留圆形 + 「城际」胶囊） */
@@ -1200,6 +1188,68 @@ body.is-editing .leaflet-marker-draggable:active { cursor: grabbing; }
   font-size: 10px;
   line-height: 1.65;
   color: var(--ink-3);
+}
+
+/* --------------------------------------------- 编辑卡片：下拉/日期/线路设置 */
+
+.card-field select,
+.sheet-field select {
+  width: 100%;
+  padding: 9px 11px;
+  border: 1px solid var(--hairline);
+  border-radius: 10px;
+  background-color: #fff;
+  color: var(--ink);
+  font-family: inherit;
+  font-size: 13px;
+  -webkit-appearance: none;
+  appearance: none;
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M3 4.6 6 7.6 9 4.6' fill='none' stroke='%235c646f' stroke-width='1.3' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  background-size: 11px 11px;
+  cursor: pointer;
+}
+
+.card-field select:focus,
+.sheet-field select:focus {
+  outline: none;
+  border-color: rgba(18, 22, 27, 0.32);
+}
+
+.sheet-field select { padding: 10px 12px; border-radius: 11px; background-color: #fbfbfc; }
+.sheet-field select:focus { background-color: #fff; }
+.sheet-field-narrow { max-width: 96px; }
+
+.card-tag-alone {
+  background: rgba(123, 94, 167, 0.14) !important;
+  color: #5b4880 !important;
+}
+
+.color-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+  padding: 3px 0 5px;
+}
+
+.color-dot {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 50%;
+  background: var(--dot-color, #e60012);
+  cursor: pointer;
+  box-shadow: inset 0 0 0 1px rgba(18, 22, 27, 0.14);
+  transition: transform 140ms var(--ease-out);
+}
+
+.color-dot:hover { transform: scale(1.08); }
+
+.color-dot.is-on {
+  border-color: #12161b;
+  box-shadow: inset 0 0 0 2px #fff;
 }
 
 /* ------------------------------------------------------------- 响应式 */

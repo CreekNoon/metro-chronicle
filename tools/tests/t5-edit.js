@@ -236,7 +236,7 @@
     const end = M.snapshot();
     add('播放可完整结束', end.story.finished === true, Math.round(performance.now() - t0) + 'ms');
     add('跨线加入的站点显示为换乘', end.stationStates[lineTwoOnly.key] === 'transfer', end.stationStates[lineTwoOnly.key]);
-    add('站点数由数据实时计算', end.stats.stations === String(allEntries()), end.stats.stations + ' vs ' + allEntries());
+    add('站点数由数据实时计算（去重）', Number(end.stats.stations) === uniqueKeys(), end.stats.stations + ' vs ' + uniqueKeys());
     add('里程随编辑重算', Number(end.stats.km) > 0, end.stats.km);
 
     /* ---------------------------------------------------- I 持久化 / 校验 */

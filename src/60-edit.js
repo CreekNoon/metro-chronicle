@@ -150,7 +150,7 @@ var Edit = {
           state: state,
           numberText: formatStationNumber(stationIndex + 1),
           draggable: true,
-          transferColors: transferColorVars(App.plan, station.key),
+          ringStyle: ringStyleVars(App.plan, station.key),
           hasRail: !!info.types.intercity,
           isRailOnly: !!info.types.intercity && !info.types.metro
         });
@@ -467,7 +467,7 @@ var Edit = {
       '<div class="bar-group">' +
         (canAdd ? '<button data-act="add-metro" title="新建地铁线路">＋地铁</button>' : '') +
         (canAdd ? '<button data-act="add-intercity" title="新建城际铁路">＋城际</button>' : '') +
-        '<button data-act="delete-line" title="删除当前线路">删除本线</button>' +
+        '<button data-act="line-settings" title="线路名称 / 类型 / 开通日期 / 配色">线路设置</button>' +
       '</div>' +
       '<div class="bar-group">' +
         '<button data-act="reset">恢复默认</button>' +
@@ -505,18 +505,11 @@ var Edit = {
     toast('已新建「' + line.name + '」，点击地图添加站点');
   },
 
-  /** 删除当前线路（二次点击确认，至少保留一条） */
+  /** 删除当前线路（至少保留一条；二次确认由调用方处理） */
   deleteLine: function () {
     var plan = App.plan;
     if (!plan) return;
     if (plan.lines.length <= 1) { toast('至少保留 1 条线路'); return; }
-    var now = Date.now();
-    if (now - this.deleteLineArmed > 2600) {
-      this.deleteLineArmed = now;
-      toast('再次点击「删除本线」以确认');
-      return;
-    }
-    this.deleteLineArmed = 0;
     var removed = plan.lines.splice(this.lineIndex, 1)[0];
     this.lineIndex = clamp(this.lineIndex, 0, plan.lines.length - 1);
     this.selectedKey = null;
@@ -561,6 +554,8 @@ var Edit = {
     var occurrences = countStationOccurrences(App.plan, station.key);
     var lineName = line.name;
     var ownerLine = findLineOfStation(App.plan, station.key);
+    var aloneMode = station.openMode === 'alone';
+    var dateValue = aloneMode ? (station.openDate || '') : '';
 
     card.innerHTML = '' +
       '<div class="card-head">' +
@@ -568,11 +563,23 @@ var Edit = {
         '<span class="card-line"><i style="--line-color:' + escapeHtml(ownerLine ? ownerLine.color : line.color) + '"></i>' +
           escapeHtml(ownerLine ? ownerLine.name : lineName) + '</span>' +
         (occurrences > 1 ? '<span class="card-tag">换乘站</span>' : '') +
+        (aloneMode ? '<span class="card-tag card-tag-alone">单独开通</span>' : '') +
         '<button class="card-close" data-act="close" aria-label="收起">×</button>' +
       '</div>' +
       '<label class="card-field">' +
         '<span>站名</span>' +
         '<input type="text" data-act="name" maxlength="24" value="' + escapeHtml(station.name) + '" />' +
+      '</label>' +
+      '<div class="card-field">' +
+        '<span>开通方式</span>' +
+        '<select data-act="open-mode">' +
+          '<option value="line"' + (aloneMode ? '' : ' selected') + '>随线路一起开通</option>' +
+          '<option value="alone"' + (aloneMode ? ' selected' : '') + '>单独开通</option>' +
+        '</select>' +
+      '</div>' +
+      '<label class="card-field"' + (aloneMode ? '' : ' style="display:none"') + '>' +
+        '<span>开通日期</span>' +
+        '<input type="text" data-act="open-date" placeholder="2035.06.01" value="' + escapeHtml(dateValue) + '" />' +
       '</label>' +
       '<label class="card-check">' +
         '<input type="checkbox" data-act="ghost"' + (station.ghost ? ' checked' : '') + ' />' +
@@ -586,6 +593,115 @@ var Edit = {
       '</div>';
 
     card.classList.add('is-on');
+  },
+
+  /* --------------------------------------------------- 站点开通方式 / 日期 */
+
+  /** 设置该站「随线路开通 / 单独开通」 */
+  setOpenMode: function (mode) {
+    if (!this.selectedKey) return;
+    var next = mode === 'alone' ? 'alone' : 'line';
+    var key = this.selectedKey;
+    var fallbackDate = '';
+    App.plan.lines.forEach(function (line) {
+      line.stations.forEach(function (station) {
+        if (station.key !== key) return;
+        station.openMode = next;
+        if (next === 'alone') {
+          if (!station.openDate) station.openDate = normalizeDateInput(line.dateText) || '';
+          fallbackDate = station.openDate;
+        } else {
+          station.openDate = '';
+        }
+      });
+    });
+    this.rebuild();
+    this.applySelection();
+    this.syncCard();
+    this.persist();
+    toast(next === 'alone'
+      ? '该站将单独开通' + (fallbackDate ? '（' + fallbackDate + '）' : '，请填写开通日期')
+      : '该站随线路一起开通');
+  },
+
+  /** 设置单独开通日期（YYYY.MM.DD） */
+  setOpenDate: function (value) {
+    if (!this.selectedKey) return;
+    var normalized = normalizeDateInput(value);
+    if (!normalized) {
+      toast('日期格式应为 YYYY.MM.DD');
+      this.syncCard();
+      return;
+    }
+    var key = this.selectedKey;
+    App.plan.lines.forEach(function (line) {
+      line.stations.forEach(function (station) {
+        if (station.key !== key) return;
+        station.openMode = 'alone';
+        station.openDate = normalized;
+      });
+    });
+    this.syncCard();
+    this.persist();
+    toast('单独开通日期：' + normalized);
+  },
+
+  /* ------------------------------------------------------- 线路设置面板 */
+
+  openLineSheet: function () {
+    var line = App.plan && App.plan.lines[this.lineIndex];
+    if (!line) return;
+    $('#lineNameInput').value = line.name;
+    $('#lineBadgeInput').value = line.badge;
+    $('#lineTypeSelect').value = line.type || 'metro';
+    $('#lineDateInput').value = line.dateText || '';
+    $('#lineStatusSelect').value = line.status || '开通运营';
+    var row = $('#lineColorRow');
+    if (row) {
+      row.innerHTML = LINE_COLOR_PALETTE.map(function (color) {
+        return '<button type="button" class="color-dot' + (color.toLowerCase() === String(line.color).toLowerCase() ? ' is-on' : '') +
+          '" data-color="' + escapeHtml(color) + '" style="--dot-color:' + escapeHtml(color) + '" aria-label="' + escapeHtml(color) + '"></button>';
+      }).join('');
+    }
+    openSheet('lineSheet');
+  },
+
+  saveLineSheet: function () {
+    var line = App.plan && App.plan.lines[this.lineIndex];
+    if (!line) return;
+    var name = String($('#lineNameInput').value || '').trim().slice(0, 24);
+    var badge = String($('#lineBadgeInput').value || '').trim().slice(0, 4);
+    var dateText = normalizeDateInput($('#lineDateInput').value);
+    if (!name) { toast('线路名不能为空'); return; }
+    if (!dateText) { toast('开通日期格式应为 YYYY.MM.DD'); return; }
+    line.name = name;
+    line.badge = badge || line.badge;
+    line.type = $('#lineTypeSelect').value === 'intercity' ? 'intercity' : 'metro';
+    line.dateText = dateText;
+    line.status = $('#lineStatusSelect').value;
+    var picked = document.querySelector('#lineColorRow .color-dot.is-on');
+    if (picked) line.color = picked.dataset.color;
+    closeSheet('lineSheet');
+    this.renderBar();
+    this.rebuild();
+    this.persist();
+    toast('已保存「' + line.name + '」设置');
+  },
+
+  /** 面板里的「删除本线」：第一次点变成「确认删除？」，二次点击才真正删除 */
+  deleteLineFromSheet: function () {
+    var button = $('#deleteLineBtn');
+    var now = Date.now();
+    if (!this.deleteLineArmed || now - this.deleteLineArmed > 3200) {
+      this.deleteLineArmed = now;
+      if (button) button.textContent = '确认删除？';
+      toast('再次点击「确认删除？」以移除当前线路');
+      return;
+    }
+    this.deleteLineArmed = 0;
+    if (button) button.textContent = '删除本线';
+    closeSheet('lineSheet');
+    this.deleteLine();
   },
 
   hideCard: function () {

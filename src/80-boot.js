@@ -51,8 +51,8 @@ function createMap() {
     zoom: 11,
     zoomControl: false,
     attributionControl: false,
-    zoomSnap: 1,
-    zoomDelta: 1,
+    zoomSnap: 0,          // 连续缩放：镜头叙事需要小数级别缩放
+    zoomDelta: 0.75,
     minZoom: 3,
     maxZoom: 17,
     worldCopyJump: false,
@@ -94,7 +94,7 @@ function bindHud() {
   var bar = $('#editBar');
   if (bar) bar.addEventListener('click', onEditBarClick);
 
-  // 编辑卡片：点击 / 输入 / 勾选 全部委托
+  // 编辑卡片：点击 / 输入 / 勾选 / 开通方式 全部委托
   var card = $('#editCard');
   if (card) {
     card.addEventListener('click', onEditCardClick);
@@ -104,7 +104,31 @@ function bindHud() {
     });
     card.addEventListener('change', function (event) {
       var target = event.target;
-      if (target && target.dataset && target.dataset.act === 'ghost') Edit.toggleGhost(target.checked);
+      if (!target || !target.dataset) return;
+      if (target.dataset.act === 'ghost') Edit.toggleGhost(target.checked);
+      else if (target.dataset.act === 'open-mode') Edit.setOpenMode(target.value);
+      else if (target.dataset.act === 'open-date') Edit.setOpenDate(target.value);
+    });
+    card.addEventListener('keydown', function (event) {
+      var target = event.target;
+      if (target && target.dataset && target.dataset.act === 'open-date' && event.key === 'Enter') {
+        Edit.setOpenDate(target.value);
+      }
+    });
+  }
+
+  // 线路设置面板
+  var saveLineBtn = $('#saveLineBtn');
+  if (saveLineBtn) saveLineBtn.addEventListener('click', function () { Edit.saveLineSheet(); });
+  var deleteLineBtn = $('#deleteLineBtn');
+  if (deleteLineBtn) deleteLineBtn.addEventListener('click', function () { Edit.deleteLineFromSheet(); });
+  var colorRow = $('#lineColorRow');
+  if (colorRow) {
+    colorRow.addEventListener('click', function (event) {
+      var dot = event.target && event.target.closest ? event.target.closest('.color-dot') : null;
+      if (!dot) return;
+      Array.prototype.forEach.call(colorRow.querySelectorAll('.color-dot'), function (el) { el.classList.remove('is-on'); });
+      dot.classList.add('is-on');
     });
   }
 
@@ -147,6 +171,7 @@ function onEditBarClick(event) {
   else if (act === 'add-metro') Edit.addLine('metro');
   else if (act === 'add-intercity') Edit.addLine('intercity');
   else if (act === 'delete-line') Edit.deleteLine();
+  else if (act === 'line-settings') Edit.openLineSheet();
   else if (act === 'done') Edit.done();
 }
 
@@ -169,7 +194,7 @@ function onViewportChange() {
     Edit.resolveLabelSides();
     return;
   }
-  if (Scene.built) Scene.fit(false);
+  if (Scene.built && !Story.playing) Scene.fit(false);
 }
 
 function showFatal(message) {
@@ -259,6 +284,7 @@ window.__METRO__ = {
   App: App,
   Scene: Scene,
   Story: Story,
+  Camera: Camera,
   Edit: Edit,
   Basemap: Basemap,
   CityUI: CityUI,
@@ -314,7 +340,10 @@ window.__METRO__ = {
         playing: Story.playing,
         finished: Story.finished,
         phase: Story.phase,
-        phases: Story.phases.slice(),
+        events: (Story.events || []).map(function (event) { return event.type + ':' + event.dateText; }),
+        eventCount: (Story.events || []).length,
+        lineEventCount: (Story.events || []).filter(function (event) { return event.type === 'line'; }).length,
+        stationEventCount: (Story.events || []).filter(function (event) { return event.type === 'station'; }).length,
         startedAt: Story.startedAt || null
       },
       editing: Edit.active,

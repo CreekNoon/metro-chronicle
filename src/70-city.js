@@ -164,10 +164,11 @@ var ZoomUI = {
     this.syncScale();
   },
 
-  /** 播放期间也允许用按钮缩放（禁止的是手势拖拽/滚轮） */
+  /** 播放期间也允许用按钮缩放（禁止的是手势拖拽/滚轮）；手动缩放会暂停自动跟拍 */
   step: function (delta) {
     var map = App.map;
     if (!map) return;
+    if (typeof Camera !== 'undefined') Camera.suspend();
     var current = map.getZoom();
     var next = clamp(current + delta, map.getMinZoom(), map.getMaxZoom());
     if (next === current) return;
@@ -184,6 +185,7 @@ var ZoomUI = {
   fit: function () {
     var map = App.map;
     if (!map) return;
+    if (typeof Camera !== 'undefined') Camera.suspend();
     if (Edit.active) {
       var bounds = L.latLngBounds([]);
       (App.plan ? App.plan.lines : []).forEach(function (line) {

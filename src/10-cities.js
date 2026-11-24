@@ -125,7 +125,8 @@ var CITY_PRESETS = [
           { key: 'zz-liyu', name: '栗雨', lat: 27.8300, lng: 113.0650, shared: true },
           { key: 'zz-shennong', name: '神农城', lat: 27.8180, lng: 113.1250 },
           { key: 'zz-zhuzhouzhan', name: '株洲站', lat: 27.8290, lng: 113.1420, shared: true },
-          { key: 'zz-hetang', name: '荷塘', lat: 27.8580, lng: 113.1850 },
+          // 荷塘单独开通：比 3 号线晚一年多，用于演示「按时间顺序插播单个站点开通」
+          { key: 'zz-hetang', name: '荷塘', lat: 27.8580, lng: 113.1850, openMode: 'alone', openDate: '2035.06.01' },
           { key: 'zz-jinshan', name: '金山新城', lat: 27.8830, lng: 113.2280, shared: true }
         ]
       },
@@ -277,7 +278,10 @@ function normalizeLine(line, lineIndex, fallback) {
       side: LABEL_SIDES.indexOf(station.side) >= 0 ? station.side : '',
       ghost: !!station.ghost,
       shared: !!station.shared,
-      terminal: !!station.terminal
+      terminal: !!station.terminal,
+      // 开通方式：随线路一起开通（默认）/ 单独开通（有自己的开通日期）
+      openMode: station.openMode === 'alone' ? 'alone' : 'line',
+      openDate: typeof station.openDate === 'string' ? station.openDate.slice(0, 16) : ''
     });
   });
 
@@ -317,15 +321,29 @@ function normalizePlan(rawPlan) {
   });
   if (!lines.length) return null;
 
-  // 跨线同 key：位置与换乘标记同步
+  // 跨线同 key：位置、换乘标记与开通方式同步
   var byKey = {};
   lines.forEach(function (line) {
     line.stations.forEach(function (station) {
       if (!byKey[station.key]) {
-        byKey[station.key] = { lat: station.lat, lng: station.lng, count: 0, ghost: station.ghost };
+        byKey[station.key] = {
+          lat: station.lat,
+          lng: station.lng,
+          count: 0,
+          ghost: station.ghost,
+          openMode: station.openMode,
+          openDate: station.openDate
+        };
       }
       byKey[station.key].count += 1;
       if (station.ghost) byKey[station.key].ghost = true;
+      if (station.openMode === 'alone' && byKey[station.key].openMode !== 'alone') {
+        byKey[station.key].openMode = 'alone';
+        byKey[station.key].openDate = station.openDate;
+      }
+      if (station.openMode === 'alone' && !byKey[station.key].openDate && station.openDate) {
+        byKey[station.key].openDate = station.openDate;
+      }
     });
   });
   lines.forEach(function (line) {
@@ -335,6 +353,8 @@ function normalizePlan(rawPlan) {
       station.lng = entry.lng;
       station.shared = entry.count > 1 || station.shared;
       if (entry.count > 1 && entry.ghost) station.ghost = true;
+      station.openMode = entry.openMode === 'alone' ? 'alone' : 'line';
+      station.openDate = station.openMode === 'alone' ? (entry.openDate || station.openDate || '') : '';
     });
   });
 
@@ -417,6 +437,8 @@ function isValidStoredPlan(raw, cityId) {
       if (seen[station.key]) { ok = false; return; }     // 同线 key 必须唯一
       seen[station.key] = true;
       if (typeof station.name !== 'string') { ok = false; return; }
+      if (station.openMode != null && station.openMode !== 'line' && station.openMode !== 'alone') { ok = false; return; }
+      if (station.openDate != null && typeof station.openDate !== 'string') { ok = false; return; }
       if (!isValidLatLng(Number(station.lat), Number(station.lng))) { ok = false; }
     });
   });
@@ -471,18 +493,42 @@ function createCustomCity(name, center) {
 
 /* ------------------------------------------------ 统计（绝不写死数字） */
 
-/** 统计激活线路的条目数 / 里程（里程为平滑曲线实际长度，四舍五入到 km） */
-function computeStats(lines, geometryMap) {
-  var stationCount = 0;
+/** 解析 '2030.06.28' / '2030-6-28' / '2030年6月28日' → 可比较数字（YYYYMMDD）；非法返回 Infinity */
+function parseDateValue(text) {
+  var match = /^(\d{4})\s*[.\-/年]?\s*(\d{1,2})\s*[.\-/月]?\s*(\d{1,2})/.exec(String(text == null ? '' : text).trim());
+  if (!match) return Infinity;
+  var year = Number(match[1]);
+  var month = Number(match[2]);
+  var day = Number(match[3]);
+  if (!(month >= 1 && month <= 12 && day >= 1 && day <= 31)) return Infinity;
+  return year * 10000 + month * 100 + day;
+}
+
+/** 统一成页面展示格式 YYYY.MM.DD；非法返回空串 */
+function normalizeDateInput(text) {
+  var match = /^(\d{4})\s*[.\-/年]?\s*(\d{1,2})\s*[.\-/月]?\s*(\d{1,2})/.exec(String(text == null ? '' : text).trim());
+  if (!match) return '';
+  var month = Number(match[2]);
+  var day = Number(match[3]);
+  if (!(month >= 1 && month <= 12 && day >= 1 && day <= 31)) return '';
+  return match[1] + '.' + ('0' + month).slice(-2) + '.' + ('0' + day).slice(-2);
+}
+
+/** 统计口径：站点按「去重站数」计数（换乘站只算一个）；里程只累加已开通线路 */
+function computeStats(lines, geometryMap, extraStationKeys) {
+  var keys = {};
+  lines.forEach(function (line) {
+    line.stations.forEach(function (station) { keys[station.key] = true; });
+  });
+  (extraStationKeys || []).forEach(function (key) { keys[key] = true; });
   var meters = 0;
   lines.forEach(function (line) {
-    stationCount += line.stations.length;
     var geometry = geometryMap[line.key];
     if (geometry && isFiniteNumber(geometry.totalMeters)) meters += geometry.totalMeters;
   });
   return {
     lines: lines.length,
-    stations: stationCount,
+    stations: Object.keys(keys).length,
     km: Math.round(meters / 1000)
   };
 }

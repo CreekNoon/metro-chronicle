@@ -22,7 +22,7 @@
   const snap = M.snapshot();
   const entries = A.plan.lines.reduce((sum, l) => sum + l.stations.length, 0);
   add('刷新后完整播放', snap.story.finished === true, Math.round(performance.now() - t0) + 'ms');
-  add('刷新后站点数=条目总数', Number(snap.stats.stations) === entries, snap.stats.stations + ' vs ' + entries);
+  add('刷新后站点数=去重站数', Number(snap.stats.stations) === Object.keys(S.stations).length, snap.stats.stations + ' vs ' + Object.keys(S.stations).length);
   const ghostStation = A.plan.lines[0].stations[3];
   add('刷新后 ghost 数据仍在（换乘态按规则覆盖为 transfer）',
     ghostStation.ghost === true && ['ghost', 'transfer'].indexOf(snap.stationStates[ghostStation.key]) >= 0,
