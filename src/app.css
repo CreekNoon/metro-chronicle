@@ -1327,6 +1327,13 @@ body.is-editing .leaflet-marker-draggable:active { cursor: grabbing; }
 
   .credit strong { font-size: 10.5px; }
 
+  /* 移动端站点标记整体缩小一档，避免全景时相邻两站的圆环互相压住 */
+  .st-ring { width: 13px; height: 13px; margin: -6.5px 0 0 -6.5px; border-width: 1.8px; }
+  .st.is-rail .st-ring { width: 12px; height: 12px; margin: -6px 0 0 -6px; }
+  .st.is-transfer .st-ring { width: 14px; height: 14px; margin: -7px 0 0 -7px; }
+  .st-dot { width: 4px; height: 4px; margin: -2px 0 0 -2px; }
+  .st.is-transfer .st-dot { width: 6px; height: 6px; margin: -3px 0 0 -3px; }
+  .st-halo { width: 22px; height: 22px; margin: -11px 0 0 -11px; }
   .st-label-inner { font-size: 11.5px; gap: 4px; }
   .st-num { font-size: 9px; padding: 2px 3.5px; }
 

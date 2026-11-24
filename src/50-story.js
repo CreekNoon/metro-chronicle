@@ -6,16 +6,16 @@
    ========================================================================== */
 
 var STORY_TIMING = {
-  intro: 0.9,            // 遮罩淡出 + HUD 依次上浮
-  travel: 0.8,           // 事件之间的镜头飞行
-  lineBase: 0.75,        // 整线绘制的基础时长
-  linePerStation: 0.28,  // 每多一站增加的绘制时长
-  lineMin: 1.9,
-  lineMax: 4.6,
-  gap: 0.12,             // 一条线画完到下一个事件之间的呼吸
-  stationHold: 1.0,      // 单站开通的停留
-  dateFlip: 0.5,         // 日期翻页耗时（与镜头飞行重叠）
-  outro: 1.2             // 收束到全览
+  intro: 1.0,            // 遮罩淡出 + HUD 依次上浮
+  travel: 1.35,          // 事件之间的镜头飞行（放慢，避免"赶"）
+  lineBase: 1.1,         // 整线绘制的基础时长
+  linePerStation: 0.42,  // 每多一站增加的绘制时长
+  lineMin: 2.8,
+  lineMax: 6.4,
+  gap: 0.15,             // 一条线画完到下一个事件之间的呼吸
+  stationHold: 1.5,      // 单站开通的停留
+  dateFlip: 0.6,         // 日期翻页耗时（与镜头飞行重叠）
+  outro: 1.7             // 收束到全览
 };
 
 /** 单条线路的绘制时长：站越多画得越久，但控制在可接受区间 */
@@ -34,6 +34,7 @@ var Story = {
   openedLines: {},
   openedStations: {},
   openedMeters: 0,
+  drawing: false,
   lastStats: '',
 
   /** 有没有可播放的内容（勾选线路里至少有一个站）——启动与切城时用来判断 */
@@ -167,6 +168,10 @@ var Story = {
 
     // 开场先给全览，第一个事件再飞入特写
     Scene.fit(false);
+    Camera.init();
+    Camera.active = true;
+    Camera.resume();
+    Camera.syncFromMap();
     var cursor = timing.intro + 0.05;
 
     events.forEach(function (event, index) {
@@ -194,7 +199,10 @@ var Story = {
         /* --- 整线开通：跟拍绘制 --- */
         var slot = { value: 0 };
         var duration = lineDrawDuration(line);
-        tl.call(function () { self.beginLine(event); }, null, landAt - 0.1);
+        tl.call(function () {
+          Camera.snapTo(startPoint, targetZoom);      // 开画前对齐构图，避免飞行残差
+          self.beginLine(event);
+        }, null, landAt - 0.1);
         tl.to(slot, {
           value: 1,
           duration: duration,
@@ -205,13 +213,17 @@ var Story = {
             self.syncRevealedStats();
           }
         }, landAt);
-        tl.call(function () { Scene.setHeadVisible(event.lineIndex, false); }, null, landAt + duration + 0.05);
+        tl.call(function () {
+          self.drawing = false;
+          Scene.setHeadVisible(event.lineIndex, false);
+        }, null, landAt + duration + 0.05);
         cursor = landAt + duration + timing.gap;
       } else {
         /* --- 单站开通：只点亮一个点，并做一次缓慢推近 --- */
         var station = self.findStation(event.stationKey);
         var pushZoom = targetZoom + 0.45;
         tl.call(function () {
+          Camera.snapTo(startPoint, targetZoom);
           self.beginStation(event);
           Scene.revealStandalone(event.stationKey);
           self.syncRevealedStats();
@@ -295,6 +307,7 @@ var Story = {
     if (Scene.openedLineKeys) Scene.openedLineKeys[line.key] = true;
     var geometry = Scene.geometries[line.key];
     if (geometry && isFiniteNumber(geometry.totalMeters)) this.openedMeters += geometry.totalMeters;
+    this.drawing = true;
     Scene.setHeadVisible(event.lineIndex, true);
     var route = Scene.routes[line.key];
     if (route && geometry && geometry.render.length) {
@@ -396,8 +409,10 @@ var Story = {
         else Scene.updateStationHeader(last.lineIndex, this.findStation(last.stationKey), last.dateText);
       }
     }
+    this.drawing = false;
     Scene.updateCredit();
     Scene.resolveLabelSides();
+    Camera.active = false;
     this.finished = true;
     this.playing = false;
   },
@@ -425,6 +440,8 @@ var Story = {
     this.openedStations = {};
     this.openedMeters = 0;
     this.lastStats = '';
+    this.drawing = false;
+    Camera.active = false;
     Camera.suspended = false;
 
     var hud = [$('#dateText'), $('#lineHead'), $('#stats'), $('#timeCapsule'), $('#credit'), $('#replayBtn'), $('#skipBtn'), $('#controls'), $('#zoomCtl')];
@@ -443,6 +460,7 @@ var Story = {
   },
 
   stop: function () {
+    if (typeof Camera !== 'undefined') Camera.active = false;
     killTimeline(this.tl);
     this.tl = null;
     this.playing = false;

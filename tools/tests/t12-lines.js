@@ -4,10 +4,10 @@
   const checks = [];
   const add = (name, ok, detail) => checks.push({ name: name, ok: !!ok, detail: detail === undefined ? '' : String(detail) });
   const sleep = (ms) => new Promise(r => setTimeout(r, ms));
-  const waitFinish = async (limit) => {
-    const t0 = performance.now();
-    while (!M.Story.finished && performance.now() - t0 < (limit || 30000)) await sleep(120);
-    await sleep(250);
+  // 该套件只关心交互结果，用「跳过动画」把每次播放直接推到终态，避免总时长超限
+  const waitFinish = async () => {
+    if (!M.Story.finished) M.Story.skip();
+    await sleep(450);
     return M.Story.finished;
   };
 
@@ -59,7 +59,9 @@
   M.LineUI.render();
   add('可取消多条线路', LS.count() === 1, LS.count());
   document.getElementById('replayBtn').click();
-  await sleep(1200);
+  await sleep(700);
+  M.Story.skip();
+  await sleep(450);
   const icOnly = M.snapshot();
   add('仅城际线播放：只有一个整线事件', icOnly.story.lineEventCount === 1, JSON.stringify(icOnly.story.events));
   add('仅城际线播放：顶栏为城际徽章', icOnly.badgeType === 'intercity' && icOnly.badge === icLine.badge,

@@ -6,9 +6,9 @@
   const sleep = (ms) => new Promise(r => setTimeout(r, ms));
   const waitFinish = async (label) => {
     const t0 = performance.now();
-    while (!M.Story.finished && performance.now() - t0 < 30000) await sleep(120);
+    if (!M.Story.finished) M.Story.skip();
+    await sleep(500);
     add(label, M.Story.finished === true, Math.round(performance.now() - t0) + 'ms');
-    await sleep(400);
   };
   const clickMapAt = (lat, lng) => {
     const map = A.map;

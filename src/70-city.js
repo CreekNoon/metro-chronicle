@@ -146,6 +146,9 @@ var LineUI = {
 /* ---------------------------------------------------------- 缩放控件 */
 
 var ZoomUI = {
+  relayoutTimer: 0,
+  scaleQueued: false,
+
   bind: function () {
     var zoomIn = $('#zoomIn');
     var zoomOut = $('#zoomOut');
@@ -153,27 +156,49 @@ var ZoomUI = {
     if (zoomIn) zoomIn.addEventListener('click', function () { ZoomUI.step(1); });
     if (zoomOut) zoomOut.addEventListener('click', function () { ZoomUI.step(-1); });
     if (zoomFit) zoomFit.addEventListener('click', function () { ZoomUI.fit(); });
-    // 缩放/拖动结束后重新计算标签避让
+    // 视野变化后只做「节流 + 去抖」的标签重排：
+    // 镜头叙事期间每次 setView 都会触发 moveend，逐帧重排会让站名闪烁
     if (App.map) {
-      App.map.on('zoomend', function () { ZoomUI.relayoutLabels(); });
-      App.map.on('moveend', function () { ZoomUI.relayoutLabels(); });
-      App.map.on('zoomstart', function () { ZoomUI.syncScale(); });
-      App.map.on('zoomend', function () { ZoomUI.syncScale(); });
-      App.map.on('move', function () { ZoomUI.syncScale(); });
+      App.map.on('moveend zoomend', function () { ZoomUI.scheduleRelayout(); });
+      App.map.on('move zoom', function () { ZoomUI.scheduleScale(); });
     }
     this.syncScale();
+  },
+
+  /** 节流：标签避让（播放中交给 Story 收尾统一处理） */
+  scheduleRelayout: function () {
+    var self = this;
+    if (typeof Story !== 'undefined' && Story.playing && typeof Camera !== 'undefined' && Camera.active) return;
+    window.clearTimeout(this.relayoutTimer);
+    this.relayoutTimer = window.setTimeout(function () { self.relayoutLabels(); }, 200);
+  },
+
+  /** 节流：比例尺提示（每帧只算一次） */
+  scheduleScale: function () {
+    if (this.scaleQueued) return;
+    this.scaleQueued = true;
+    var self = this;
+    window.requestAnimationFrame(function () {
+      self.scaleQueued = false;
+      self.syncScale();
+    });
   },
 
   /** 播放期间也允许用按钮缩放（禁止的是手势拖拽/滚轮）；手动缩放会暂停自动跟拍 */
   step: function (delta) {
     var map = App.map;
     if (!map) return;
-    if (typeof Camera !== 'undefined') Camera.suspend();
-    var current = map.getZoom();
+    if (typeof Camera !== 'undefined') {
+      Camera.active = false;
+      Camera.suspend();
+      Camera.syncFromMap();
+    }
+    var current = Math.round(map.getZoom());
     var next = clamp(current + delta, map.getMinZoom(), map.getMaxZoom());
     if (next === current) return;
-    map.setZoom(next, { animate: true });
+    map.setView(map.getCenter(), next, { animate: false });
     this.syncScale();
+    this.scheduleRelayout();
   },
 
   relayoutLabels: function () {
@@ -185,7 +210,11 @@ var ZoomUI = {
   fit: function () {
     var map = App.map;
     if (!map) return;
-    if (typeof Camera !== 'undefined') Camera.suspend();
+    if (typeof Camera !== 'undefined') {
+      Camera.active = false;
+      Camera.suspend();
+      Camera.syncFromMap();
+    }
     if (Edit.active) {
       var bounds = L.latLngBounds([]);
       (App.plan ? App.plan.lines : []).forEach(function (line) {

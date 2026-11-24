@@ -4,11 +4,11 @@
   const checks = [];
   const add = (name, ok, detail) => checks.push({ name: name, ok: !!ok, detail: detail === undefined ? '' : String(detail) });
   const sleep = (ms) => new Promise(r => setTimeout(r, ms));
-  const waitFinish = async (label, limit) => {
+  const waitFinish = async (label) => {
     const t0 = performance.now();
-    while (!M.Story.finished && performance.now() - t0 < (limit || 30000)) await sleep(120);
+    if (!M.Story.finished) M.Story.skip();
+    await sleep(500);
     add(label, M.Story.finished === true, Math.round(performance.now() - t0) + 'ms');
-    await sleep(300);
   };
   const selectCity = (id) => {
     const sel = document.getElementById('citySelect');

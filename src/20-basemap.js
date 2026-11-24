@@ -182,12 +182,16 @@ var Basemap = {
       maxZoom: 19,
       maxNativeZoom: 16,
       crossOrigin: true,
+      keepBuffer: 6,             // 多留一圈瓦片，平移时不易出现空白闪烁
+      updateWhenZooming: false,
       pane: 'tilePane'
     });
     var reference = L.tileLayer(BASEMAP_SOURCES.esriReference, {
       maxZoom: 19,
       maxNativeZoom: 16,
       crossOrigin: true,
+      keepBuffer: 6,
+      updateWhenZooming: false,
       pane: 'tilePane'
     });
     base.addTo(this.map);
@@ -222,6 +226,8 @@ var Basemap = {
       maxNativeZoom: 18,
       className: 'basemap-amap',
       crossOrigin: true,
+      keepBuffer: 6,             // 多留一圈瓦片，镜头平移时不易出现空白闪烁
+      updateWhenZooming: false,
       pane: 'tilePane'
     });
     layer.addTo(this.map);

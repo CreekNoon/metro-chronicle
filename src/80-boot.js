@@ -51,17 +51,22 @@ function createMap() {
     zoom: 11,
     zoomControl: false,
     attributionControl: false,
-    zoomSnap: 0,          // 连续缩放：镜头叙事需要小数级别缩放
+    zoomSnap: 0,              // 连续缩放：镜头叙事需要小数级别缩放
     zoomDelta: 0.75,
     minZoom: 3,
     maxZoom: 17,
     worldCopyJump: false,
     doubleClickZoom: false,
     keyboard: true,
-    preferCanvas: false
+    preferCanvas: false,
+    // 镜头自己驱动视野：关掉 Leaflet 自身的缩放/瓦片淡入动画，避免逐帧重绘造成的闪烁
+    zoomAnimation: false,
+    fadeAnimation: false,
+    markerZoomAnimation: false
   });
   App.map.on('click', function (event) { Edit.onMapClick(event); });
   setMapLocked(true);
+  Camera.init();
   return App.map;
 }
 

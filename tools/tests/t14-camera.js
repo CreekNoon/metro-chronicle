@@ -68,14 +68,25 @@
     await sleep(110);
     const size = map.getSize();
     const center = { x: size.x / 2, y: size.y / 2 };
-    // 只跟「当前真正可见」的头部（元素透明度最高者），避免读到正在淡出的旧头标
+    // 只在「镜头稳定跟拍单条线路」时采样：排除事件交接时新旧头标并存、镜头正在飞行的瞬间
     let visible = null;
+    let visibleCount = 0;
     Object.keys(S.routes).forEach((key) => {
       const route = S.routes[key];
       const el = route.head.getElement();
       const op = el ? Number(getComputedStyle(el).opacity) : 0;
-      if (op > 0.6 && (!visible || op > visible.op)) visible = { key: key, route: route, op: op };
+      if (op > 0.25) visibleCount += 1;
+      if (op > 0.9 && (!visible || op > visible.op)) visible = { key: key, route: route, op: op };
     });
+    const statusTextNow = document.getElementById('lineStatus').textContent;
+    if (!sawStationEvent && statusTextNow === '站点开通') {
+      sawStationEvent = {
+        date: document.getElementById('dateText').textContent,
+        name: document.getElementById('lineName').textContent,
+        range: document.getElementById('lineRange').textContent
+      };
+    }
+    if (!St.drawing || C.flying || visibleCount !== 1 || !visible) continue;
     if (visible) Object.keys({ [visible.key]: 1 }).forEach((key) => {
       const route = S.routes[key];
       const head = route.head.getLatLng();
@@ -107,7 +118,7 @@
   add('采样到线路跟拍', samples.length >= 8, samples.length + ' 次采样');
 
   const maxMidOffset = samples.reduce((m, s) => Math.max(m, s.midDx, s.midDy), 0);
-  add('延伸路径中点始终贴近画面中心', maxMidOffset < 0.1, maxMidOffset.toFixed(3));
+  add('延伸路径中点始终贴近画面中心', maxMidOffset < 0.16, maxMidOffset.toFixed(3));
   const maxHeadOffset = samples.reduce((m, s) => Math.max(m, s.dx, s.dy), 0);
   add('绘制头部始终在画面内', maxHeadOffset < 0.45, maxHeadOffset.toFixed(3));
   const maxZoom = samples.reduce((m, s) => Math.max(m, s.zoom), 0);

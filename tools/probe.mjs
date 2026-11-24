@@ -1019,7 +1019,7 @@ async function evaluateExpression(send, expression) {
 
   const attempt = async (expr) => {
     try {
-      return { res: await send('Runtime.evaluate', { ...base, expression: expr }, 60000) };
+      return { res: await send('Runtime.evaluate', { ...base, expression: expr }, 180000) };
     } catch (e) {
       return { protocolError: String(e.message || e) };
     }

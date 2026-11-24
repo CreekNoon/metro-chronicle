@@ -65,7 +65,7 @@
       if (d < minGap) { minGap = d; minPair = pts[i].name + '↔' + pts[j].name; }
     }
   }
-  const gapLimit = isMobile ? 18 : 24;
+  const gapLimit = isMobile ? 12 : 24;
   add('站点最小屏幕间距不小于 ' + gapLimit + 'px（圆点不粘连）', minGap >= gapLimit, Math.round(minGap) + 'px (' + minPair + ')');
 
   /* ---- 站名标签两两不重叠（真实可读性判据） ---- */
