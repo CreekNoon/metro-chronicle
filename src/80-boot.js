@@ -86,10 +86,16 @@ function resolveStartCity() {
 
 function bindHud() {
   var replayBtn = $('#replayBtn');
-  if (replayBtn) replayBtn.addEventListener('click', function () { Story.replay(); });
+  if (replayBtn) replayBtn.addEventListener('click', function () {
+    if (App.engine === 'schematic' && typeof Schematic !== 'undefined' && Schematic.root) { Schematic.replay(); return; }
+    Story.replay();
+  });
 
   var skipBtn = $('#skipBtn');
-  if (skipBtn) skipBtn.addEventListener('click', function () { Story.skip(); });
+  if (skipBtn) skipBtn.addEventListener('click', function () {
+    if (App.engine === 'schematic' && typeof Schematic !== 'undefined' && Schematic.root) { Schematic.skip(); return; }
+    Story.skip();
+  });
 
   var editBtn = $('#editBtn');
   if (editBtn) editBtn.addEventListener('click', function () { Edit.enter(); });
@@ -458,7 +464,23 @@ window.__METRO__ = {
         };
       }),
       lengthsMeters: lengths,
-      story: {
+      story: (function () {
+        // 示意图引擎用自己的时间轴（事件表仍来自 Story.buildEvents）
+        if (App.engine === 'schematic' && typeof Schematic !== 'undefined' && Schematic.root) {
+          var events = Schematic.events || [];
+          return {
+            engine: 'schematic',
+            playing: !!Schematic.running,
+            finished: !!Schematic.finished,
+            phase: Schematic.phase,
+            events: events.map(function (event) { return event.type + ':' + event.dateText; }),
+            eventCount: events.length,
+            lineEventCount: events.filter(function (event) { return event.type === 'line'; }).length,
+            stationEventCount: events.filter(function (event) { return event.type === 'station'; }).length,
+            startedAt: Schematic.startedAt || null
+          };
+        }
+        return {
         playing: Story.playing,
         finished: Story.finished,
         phase: Story.phase,
@@ -467,7 +489,8 @@ window.__METRO__ = {
         lineEventCount: (Story.events || []).filter(function (event) { return event.type === 'line'; }).length,
         stationEventCount: (Story.events || []).filter(function (event) { return event.type === 'station'; }).length,
         startedAt: Story.startedAt || null
-      },
+        };
+      })(),
       editing: Edit.active,
       editLineIndex: Edit.lineIndex,
       locked: App.locked,

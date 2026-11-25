@@ -29,13 +29,25 @@
     Object.keys(P.geometries).length + ' 条');
 
   /* 播放推进 */
-  const before = { phase: P.phase, revealed: P.snapshot().revealed, zoom: map.getZoom() };
+  const center0 = map.getCenter();
+  const before = { phase: P.phase, revealed: P.snapshot().revealed, zoom: map.getZoom(), center: [center0.lat, center0.lng] };
   await sleep(9000);
-  const after = { phase: P.phase, revealed: P.snapshot().revealed, zoom: map.getZoom() };
+  const center1 = map.getCenter();
+  const after = { phase: P.phase, revealed: P.snapshot().revealed, zoom: map.getZoom(), center: [center1.lat, center1.lng] };
   add('播放时间轴在推进', P.running === true || P.phase !== 'idle', P.phase);
-  add('站点随绘制逐个点亮', after.revealed > before.revealed, before.revealed + ' → ' + after.revealed);
-  add('镜头在移动（缩放或中心变化）', Math.abs(after.zoom - before.zoom) > 0.2 || P.phaseDiff,
-    before.zoom.toFixed(2) + ' → ' + after.zoom.toFixed(2));
+  // 若播放已经结束，就断言"全部点亮"；否则断言确实在推进
+  const totalStations = P.snapshot().stations;
+  if (P.phase === 'done' || after.revealed >= totalStations) {
+    add('站点已全部点亮（播放完成）', after.revealed === totalStations, after.revealed + '/' + totalStations);
+  } else {
+    add('站点随绘制逐个点亮', after.revealed > before.revealed, before.revealed + ' → ' + after.revealed);
+  }
+  const moved = Math.abs(after.zoom - before.zoom) > 0.2 ||
+    Math.abs(after.center[0] - before.center[0]) > 1e-4 ||
+    Math.abs(after.center[1] - before.center[1]) > 1e-4 ||
+    after.phase !== before.phase;
+  add('镜头或阶段在推进', moved,
+    'zoom ' + before.zoom.toFixed(2) + '→' + after.zoom.toFixed(2) + ' / phase ' + before.phase + '→' + after.phase);
   add('存在统一的全景/特写比例', P.panorama > 4 && P.focus > P.panorama,
     'panorama=' + P.panorama.toFixed(2) + ' focus=' + P.focus.toFixed(2));
 

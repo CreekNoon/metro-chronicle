@@ -10994,84 +10994,119 @@ var Schematic = {
 
   /* ---------------------------------------------------------- 事件与播放 */
 
+  /**
+   * 直接复用 Story 的事件表：按开通日期排序，含「单独开通」的站点事件，
+   * 并遵循线路多选（LineSelection）。示意图只是换了一套渲染/镜头而已。
+   */
   computeEvents: function () {
-    var plan = this.plan;
-    var events = [];
-    plan.lines.forEach(function (line) {
-      events.push({
-        type: 'line',
-        key: line.key,
-        color: line.color,
-        name: line.name,
-        line: line,
-        value: parseDateValue(line.dateText),
-        dateText: line.dateText
-      });
-    });
-    events.sort(function (a, b) { return (a.value || 0) - (b.value || 0); });
-    this.events = events;
+    if (typeof Story !== 'undefined' && typeof Story.buildEvents === 'function') {
+      this.events = Story.buildEvents() || [];
+    } else {
+      this.events = [];
+    }
+    return this.events;
   },
 
   play: function () {
     if (this.running || !this.layout) return;
-    this.running = true;
-    this.phase = 'play';
     var self = this;
-    var tl = gsap.timeline({
-      onComplete: function () {
-        self.running = false;
-        self.phase = 'done';
-        self.updateStats(true);
-      }
-    });
-    this.timeline = tl;
+    var timing = (typeof STORY_TIMING !== 'undefined') ? STORY_TIMING : {
+      travel: 1.5, lineBase: 2.2, linePerStation: 0.84, lineMin: 5.6, lineMax: 12.8,
+      stationHold: 3, gap: 0.3, panoramaHold: 1.6, flyBack: 1.6
+    };
+    var hold = typeof timing.panoramaHold === 'number' ? timing.panoramaHold : 1.6;
+    var flyBack = typeof timing.flyBack === 'number' ? timing.flyBack : SCHEMATIC.flyBack || 1.6;
 
-    // 初始：全部隐藏
+    this.running = true;
+    this.finished = false;
+    this.phase = 'intro';
+    this.startedAt = this.startedAt || performance.now();
+
+    // 归零：全部隐藏、线路全未绘制
     this.layout.order.forEach(function (key) { self.setStationState(key, 'hidden'); });
     this.layout.lines.forEach(function (entry) { self.setLineProgress(entry.line.key, 0); });
     this.updateStats(false);
 
-    var cursor = 0.3;
-    this.events.forEach(function (event) {
-      var lineEntry = self.layout.lines.filter(function (item) { return item.line.key === event.key; })[0];
-      if (!lineEntry) return;
-      var duration = Math.min(13, Math.max(5, 2.0 + event.line.stations.length * 0.85));
-
-      // 1) 镜头移到线路起点 + 拉近到特写
-      tl.call(function () {
-        self.phase = 'travel';
-        self.updateHud(event);
-        var first = lineEntry.points[0];
-        self.centerOn(first.x, first.y, self.focusScale);
-      }, null, cursor);
-      cursor += SCHEMATIC.travel;
-
-      // 2) 沿线绘制 + 逐站点亮 + 镜头跟随头部
-      var cursorState = { p: 0 };
-      tl.to(cursorState, {
-        p: 1,
-        duration: duration,
-        ease: 'none',
-        onUpdate: function () {
-          self.phase = 'draw';
-          self.setLineProgress(event.key, cursorState.p);
-          var head = self.headOf(lineEntry, cursorState.p);
-          if (head) self.centerOn(head.x, head.y, self.focusScale);
-          self.revealByProgress(event, lineEntry, cursorState.p);
-          self.updateStats(false);
-        }
-      }, cursor);
-      cursor += duration;
-
-      // 3) 拉回全景
-      tl.call(function () {
-        self.phase = 'panorama';
+    var tl = gsap.timeline({
+      onComplete: function () {
+        self.running = false;
+        self.finished = true;
+        self.phase = 'done';
         self.centerOn(self.layout.width / 2, self.layout.height / 2, self.panoramaScale);
-        self.setLineProgress(event.key, 1);
-        self.lineDone(event.key);
-        self.updateStats(false);
-      }, null, cursor);
-      cursor += 1.6;
+        self.updateStats(true);
+      }
+    });
+    this.timeline = tl;
+    var cursor = 0.3;
+
+    (this.events || []).forEach(function (event) {
+      var line = self.plan.lines[event.lineIndex];
+      if (!line) return;
+      var entry = self.layout.lines.filter(function (item) { return item.line.key === line.key; })[0];
+      if (!entry) return;
+
+      if (event.type === 'line') {
+        var stations = line.stations.length;
+        var draw = Math.max(timing.lineMin, Math.min(timing.lineMax, timing.lineBase + timing.linePerStation * stations));
+
+        // 1) 镜头推到线路起点（特写）
+        tl.call(function () {
+          self.phase = 'travel';
+          self.updateHud({ dateText: event.dateText, line: line, name: line.name });
+          var first = entry.points[0];
+          self.centerOn(first.x, first.y, self.focusScale);
+        }, null, cursor);
+        cursor += timing.travel;
+
+        // 2) 沿线绘制 + 逐站点亮 + 镜头跟随头部
+        var state = { p: 0 };
+        tl.to(state, {
+          p: 1,
+          duration: draw,
+          ease: 'none',
+          onUpdate: function () {
+            self.phase = 'draw';
+            self.setLineProgress(line.key, state.p);
+            var head = self.headOf(entry, state.p);
+            if (head) self.centerOn(head.x, head.y, self.focusScale);
+            self.revealByProgress(event, entry, state.p);
+            self.updateStats(false);
+          }
+        }, cursor);
+        cursor += draw;
+
+        // 3) 拉回全景展示整条线
+        tl.call(function () {
+          self.phase = 'panorama';
+          self.centerOn(self.layout.width / 2, self.layout.height / 2, self.panoramaScale);
+          self.setLineProgress(line.key, 1);
+          self.lineDone(line.key);
+          self.updateStats(false);
+        }, null, cursor);
+        cursor += hold + timing.gap;
+      } else {
+        /* 单站开通：镜头对准该站 → 点亮 → 回到全景 */
+        var station = line.stations[event.stationIndex];
+        tl.call(function () {
+          self.phase = 'station';
+          self.updateStationHud({ dateText: event.dateText, line: line, station: station });
+          var target = station ? self.nodes[station.key] : null;
+          if (target) self.centerOn(target.node.x, target.node.y, self.focusScale * 1.18);
+        }, null, cursor);
+        cursor += timing.travel;
+
+        tl.call(function () {
+          if (station) self.setStationState(station.key, 'opened');
+          self.updateStats(false);
+        }, null, cursor);
+        cursor += timing.stationHold;
+
+        tl.call(function () {
+          self.phase = 'panorama';
+          self.centerOn(self.layout.width / 2, self.layout.height / 2, self.panoramaScale);
+        }, null, cursor);
+        cursor += flyBack + timing.gap;
+      }
     });
 
     tl.call(function () {
@@ -11079,10 +11114,64 @@ var Schematic = {
     }, null, cursor);
   },
 
-  headOf: function (lineEntry, ratio) {
-    var points = lineEntry.points;
-    var target = lineEntry.total * clamp(ratio, 0, 1);
-    var cumulative = lineEntry.cumulative;
+  /** 跳过动画：直接到终态 */
+  skip: function () {
+    if (!this.layout) return;
+    if (this.timeline) {
+      this.timeline.kill();
+      this.timeline = null;
+    }
+    var self = this;
+    this.layout.order.forEach(function (key) {
+      if (self.nodes[key].state === 'hidden') self.setStationState(key, 'opened');
+    });
+    this.layout.lines.forEach(function (entry) { self.setLineProgress(entry.line.key, 1); });
+    this.running = false;
+    this.finished = true;
+    this.phase = 'done';
+    this.centerOn(this.layout.width / 2, this.layout.height / 2, this.panoramaScale);
+    this.updateStats(true);
+    var last = (this.events || [])[this.events.length - 1];
+    if (last) {
+      var line = this.plan.lines[last.lineIndex];
+      if (line) {
+        if (last.type === 'station') this.updateStationHud({ dateText: last.dateText, line: line, station: line.stations[last.stationIndex] });
+        else this.updateHud({ dateText: last.dateText, line: line, name: line.name });
+      }
+    }
+  },
+
+  /** 重播：清空后重新按事件表播放 */
+  replay: function () {
+    if (this.timeline) {
+      this.timeline.kill();
+      this.timeline = null;
+    }
+    this.running = false;
+    this.finished = false;
+    this.phase = 'idle';
+    this.startedAt = performance.now();
+    this.computeEvents();
+    this.play();
+  },
+
+  updateStationHud: function (event) {
+    var date = document.getElementById('dateText');
+    if (date) date.textContent = event.dateText || '';
+    var name = document.getElementById('lineName');
+    if (name && event.station) name.textContent = event.station.name;
+    var range = document.getElementById('lineRange');
+    if (range && event.line) range.textContent = (event.line.name || '') + ' · 单独开通';
+    var status = document.getElementById('lineStatus');
+    if (status) status.textContent = '站点开通';
+  },
+
+  /** 折线上按里程比例取"头部"位置 */
+  headOf: function (entry, ratio) {
+    var points = entry.points;
+    if (!points || points.length < 2) return points && points[0] ? points[0] : null;
+    var target = entry.total * clamp(ratio, 0, 1);
+    var cumulative = entry.cumulative;
     var index = 0;
     while (index < cumulative.length - 2 && cumulative[index + 1] < target) index += 1;
     var segStart = cumulative[index];
@@ -11094,26 +11183,32 @@ var Schematic = {
     return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
   },
 
-  revealByProgress: function (event, lineEntry, ratio) {
+  /** 按绘制进度点亮该线上"已到达"的站点 */
+  revealByProgress: function (event, entry, ratio) {
     var self = this;
-    event.line.stations.forEach(function (station, index) {
-      var stationRatio = lineEntry.stationRatio[index];
+    var line = this.plan.lines[event.lineIndex];
+    if (!line) return;
+    line.stations.forEach(function (station, index) {
+      var stationRatio = entry.stationRatio[index];
       if (ratio + 1e-6 < stationRatio) return;
       var target = self.nodes[station.key];
       if (!target || target.state !== 'hidden') return;
+      // 单独开通的站点由它自己的事件点亮，不随线路提前出现
+      if (station.openMode === 'alone') return;
       self.setStationState(station.key, station.ghost ? 'ghost' : 'opened');
     });
   },
 
-  /** 线路画完后，把该线上还没点亮的（ghost 变 opened 等）补齐 */
+  /** 线路画完之后，补齐这条线上仍未点亮的站点 */
   lineDone: function (lineKey) {
     var self = this;
     var line = this.plan.lines.filter(function (item) { return item.key === lineKey; })[0];
     if (!line) return;
     line.stations.forEach(function (station) {
+      if (station.openMode === 'alone') return;   // 留给它自己的开通事件
       var target = self.nodes[station.key];
-      if (!target) return;
-      if (target.state === 'hidden') self.setStationState(station.key, station.ghost ? 'ghost' : 'opened');
+      if (!target || target.state !== 'hidden') return;
+      self.setStationState(station.key, station.ghost ? 'ghost' : 'opened');
     });
   },
 
@@ -11134,28 +11229,42 @@ var Schematic = {
 
   updateStats: function (final) {
     var self = this;
-    var revealed = Object.keys(this.nodes).filter(function (key) { return self.nodes[key].state !== 'hidden'; }).length;
-    var lines = final ? Object.keys(this.lines).length : Object.keys(this.lines).filter(function (key) {
-      return self.nodes && Object.keys(self.nodes).some(function (nodeKey) {
-        return self.nodes[nodeKey].state !== 'hidden' && self.nodes[nodeKey].node.lineKeys.indexOf(key) >= 0;
+    if (!this.plan) return;
+
+    // 与地理版共用统计口径：去重站点数 + 已开通线路里程
+    var geo = {};
+    this.plan.lines.forEach(function (line) {
+      var total = 0;
+      for (var i = 1; i < line.stations.length; i += 1) {
+        total += haversineMeters(
+          [line.stations[i - 1].lat, line.stations[i - 1].lng],
+          [line.stations[i].lat, line.stations[i].lng]
+        );
+      }
+      geo[line.key] = { totalMeters: total };
+    });
+
+    var openedLines = [];
+    this.plan.lines.forEach(function (line) {
+      if (final) { openedLines.push(line); return; }
+      var opened = line.stations.some(function (station) {
+        var node = self.nodes[station.key];
+        if (!node || node.state === 'hidden') return false;
+        // 该站被这条线点亮（单站开通事件也算）
+        return node.node.lineKeys.indexOf(line.key) >= 0;
       });
-    }).length;
-    var km = 0;
-    if (this.plan) {
-      this.plan.lines.forEach(function (line) {
-        if (!final && !line.stations.some(function (station) { return self.nodes[station.key] && self.nodes[station.key].state !== 'hidden'; })) return;
-        for (var i = 1; i < line.stations.length; i += 1) {
-          km += haversineMeters(
-            [line.stations[i - 1].lat, line.stations[i - 1].lng],
-            [line.stations[i].lat, line.stations[i].lng]
-          );
-        }
-      });
-    }
+      if (opened) openedLines.push(line);
+    });
+
+    var stats = (typeof computeStats === 'function')
+      ? computeStats(openedLines, geo, [])
+      : { lines: openedLines.length, stations: 0, km: 0 };
+
     var setText = function (id, text) { var el = document.getElementById(id); if (el) el.textContent = text; };
-    setText('statLines', String(lines));
-    setText('statStations', String(revealed));
-    setText('statKm', km ? String(Math.round(km / 1000)) : '—');
+    setText('statLines', String(stats.lines));
+    setText('statStations', String(stats.stations));
+    setText('statKm', stats.km ? String(stats.km) : '—');
+    this.stats = stats;
   },
 
   /* ---------------------------------------------------------- 调试接口 */
@@ -11666,10 +11775,16 @@ function resolveStartCity() {
 
 function bindHud() {
   var replayBtn = $('#replayBtn');
-  if (replayBtn) replayBtn.addEventListener('click', function () { Story.replay(); });
+  if (replayBtn) replayBtn.addEventListener('click', function () {
+    if (App.engine === 'schematic' && typeof Schematic !== 'undefined' && Schematic.root) { Schematic.replay(); return; }
+    Story.replay();
+  });
 
   var skipBtn = $('#skipBtn');
-  if (skipBtn) skipBtn.addEventListener('click', function () { Story.skip(); });
+  if (skipBtn) skipBtn.addEventListener('click', function () {
+    if (App.engine === 'schematic' && typeof Schematic !== 'undefined' && Schematic.root) { Schematic.skip(); return; }
+    Story.skip();
+  });
 
   var editBtn = $('#editBtn');
   if (editBtn) editBtn.addEventListener('click', function () { Edit.enter(); });
@@ -12038,7 +12153,23 @@ window.__METRO__ = {
         };
       }),
       lengthsMeters: lengths,
-      story: {
+      story: (function () {
+        // 示意图引擎用自己的时间轴（事件表仍来自 Story.buildEvents）
+        if (App.engine === 'schematic' && typeof Schematic !== 'undefined' && Schematic.root) {
+          var events = Schematic.events || [];
+          return {
+            engine: 'schematic',
+            playing: !!Schematic.running,
+            finished: !!Schematic.finished,
+            phase: Schematic.phase,
+            events: events.map(function (event) { return event.type + ':' + event.dateText; }),
+            eventCount: events.length,
+            lineEventCount: events.filter(function (event) { return event.type === 'line'; }).length,
+            stationEventCount: events.filter(function (event) { return event.type === 'station'; }).length,
+            startedAt: Schematic.startedAt || null
+          };
+        }
+        return {
         playing: Story.playing,
         finished: Story.finished,
         phase: Story.phase,
@@ -12047,7 +12178,8 @@ window.__METRO__ = {
         lineEventCount: (Story.events || []).filter(function (event) { return event.type === 'line'; }).length,
         stationEventCount: (Story.events || []).filter(function (event) { return event.type === 'station'; }).length,
         startedAt: Story.startedAt || null
-      },
+        };
+      })(),
       editing: Edit.active,
       editLineIndex: Edit.lineIndex,
       locked: App.locked,
