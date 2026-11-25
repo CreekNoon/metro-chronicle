@@ -288,7 +288,10 @@ function boot() {
 function engineFromQuery() {
   try {
     var value = new URLSearchParams(window.location.search).get('engine');
-    return value ? String(value).toLowerCase() : 'leaflet';
+    var name = value ? String(value).toLowerCase() : 'leaflet';
+    // 兼容 ?engine=ml / ?engine=maplibre
+    if (name === 'ml' || name === 'maplibre' || name === 'gl') return 'ml';
+    return name;
   } catch (err) {
     return 'leaflet';
   }

@@ -39,22 +39,15 @@ var MlPreview = {
 
     var self = this;
     var center = plan.view && plan.view.center ? plan.view.center : [27.865, 113.135];
+    var baseSource = this.prepareBasemapSource();
+    this.basemapKind = baseSource.kind;
     this.map = new maplibregl.Map({
       container: 'mlMap',
       style: {
         version: 8,
         glyphs: 'https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf',
         sources: {
-          base: {
-            type: 'raster',
-            tiles: [
-              'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}',
-              'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Reference/MapServer/tile/{z}/{y}/{x}'
-            ],
-            tileSize: 256,
-            maxzoom: 16,
-            attribution: 'Esri'
-          }
+          base: baseSource.source
         },
         layers: [
           { id: 'bg', type: 'background', paint: { 'background-color': '#eef0f2' } },
@@ -88,6 +81,69 @@ var MlPreview = {
       window.setTimeout(function () { self.play(); }, 500);
     });
     return true;
+  },
+
+  /**
+   * 底图来源：
+   * - 离线包（HTML 内嵌 base64 PMTiles）→ pmtiles:// 协议，完全断网可用
+   * - 否则用 Esri 栅格（联网）
+   */
+  prepareBasemapSource: function () {
+    var self = this;
+    var offline = this.offlineArchiveUrl();
+    if (offline && window.pmtiles && window.maplibregl && maplibregl.addProtocol) {
+      try {
+        var protocol = new pmtiles.Protocol();
+        maplibregl.addProtocol('pmtiles', protocol.tile);
+        return {
+          kind: 'pmtiles',
+          source: {
+            type: 'raster',
+            url: 'pmtiles://' + offline,
+            tileSize: 256,
+            minzoom: 9,
+            maxzoom: 13,
+            attribution: '离线底图 · Esri Light Gray（PMTiles）'
+          }
+        };
+      } catch (err) {
+        console.warn('PMTiles 协议注册失败，回退到联网底图：', err && err.message);
+      }
+    }
+    void self;
+    return {
+      kind: 'network',
+      source: {
+        type: 'raster',
+        tiles: [
+          'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}',
+          'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Reference/MapServer/tile/{z}/{y}/{x}'
+        ],
+        tileSize: 256,
+        maxzoom: 16,
+        attribution: 'Esri'
+      }
+    };
+  },
+
+  /** 把内嵌的 base64 PMTiles 解成 blob URL（只做一次） */
+  offlineArchiveUrl: function () {
+    if (this.archiveUrl !== undefined) return this.archiveUrl;
+    this.archiveUrl = null;
+    var slot = document.getElementById('pmtiles-data');
+    var text = slot ? String(slot.textContent || '').trim() : '';
+    if (!text || text.length < 100) return null;
+    try {
+      var binary = atob(text);
+      var bytes = new Uint8Array(binary.length);
+      for (var i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+      this.archiveBytes = bytes.length;
+      this.archiveUrl = URL.createObjectURL(new Blob([bytes], { type: 'application/octet-stream' }));
+    } catch (err) {
+      console.warn('离线底图解包失败：', err && err.message);
+      this.archiveUrl = null;
+    }
+    return this.archiveUrl;
   },
 
   /* --------------------------------------------------------- 数据 → 图层 */
@@ -462,6 +518,8 @@ var MlPreview = {
     return {
       ready: !!this.map,
       phase: this.phase,
+      basemap: this.basemapKind || 'unknown',
+      archiveBytes: this.archiveBytes || 0,
       panorama: Number((this.panorama || 0).toFixed(2)),
       focus: Number((this.focus || 0).toFixed(2)),
       zoom: this.map ? Number(this.map.getZoom().toFixed(2)) : null,

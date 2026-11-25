@@ -53,12 +53,28 @@ const [shell, leafletCssRaw, appCss] = await Promise.all([
   readFile(path.join(srcDir, 'app.css'), 'utf8')
 ]);
 
-const [leafletJs, gsapJs, maplibreJs, maplibreCss] = await Promise.all([
+const [leafletJs, gsapJs, maplibreJs, maplibreCss, pmtilesJs] = await Promise.all([
   readFile(path.join(vendorDir, 'leaflet.js'), 'utf8'),
   readFile(path.join(vendorDir, 'gsap.min.js'), 'utf8'),
   readFile(path.join(vendorDir, 'maplibre-gl.js'), 'utf8'),
-  readFile(path.join(vendorDir, 'maplibre-gl.css'), 'utf8')
+  readFile(path.join(vendorDir, 'maplibre-gl.css'), 'utf8'),
+  readFile(path.join(vendorDir, 'pmtiles.js'), 'utf8')
 ]);
+
+// --offline：把 PMTiles 离线底图包打进 HTML（base64），产出可完全离线的单文件
+const wantOffline = process.argv.includes('--offline');
+let pmtilesData = '';
+if (wantOffline) {
+  const archivePath = path.join(here, 'assets', 'hunan-light.pmtiles');
+  try {
+    const buf = await readFile(archivePath);
+    pmtilesData = buf.toString('base64');
+    console.log('离线包：' + (buf.length / 1024 / 1024).toFixed(2) + ' MB → base64 ' + (pmtilesData.length / 1024 / 1024).toFixed(2) + ' MB');
+  } catch (err) {
+    console.error('缺少离线底图包 assets/hunan-light.pmtiles，请先运行 node tools/build-pmtiles.mjs');
+    process.exit(1);
+  }
+}
 
 const appJsParts = [];
 for (const file of APP_PARTS) {
@@ -93,6 +109,8 @@ const replacements = [
   ['/*__GSAP_JS__*/', guardInline(gsapJs, 'gsap.min.js')],
   ['/*__MAPLIBRE_CSS__*/', guardInline(maplibreCss, 'maplibre-gl.css')],
   ['/*__MAPLIBRE_JS__*/', guardInline(maplibreJs, 'maplibre-gl.js')],
+  ['/*__PMTILES_JS__*/', guardInline(pmtilesJs, 'pmtiles.js')],
+  ['/*__PMTILES_DATA__*/', pmtilesData],
   ['/*__APP_JS__*/', guardInline(appJs, 'app.js')]
 ];
 
