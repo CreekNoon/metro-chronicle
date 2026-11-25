@@ -97,6 +97,26 @@ body {
 
 .sc-line path { pointer-events: none; }
 
+/* 示意图里的站名字号比地理版更大，便于阅读 */
+#scMap .sc-nodes .st-label-inner {
+  font-size: 16px;
+  font-weight: 500;
+  gap: 6px;
+}
+
+#scMap .sc-nodes .side-bottom .st-label { top: 18px; }
+#scMap .sc-nodes .side-top .st-label { bottom: 18px; }
+#scMap .sc-nodes .side-left .st-label { right: 18px; }
+#scMap .sc-nodes .side-right .st-label { left: 18px; }
+#scMap .sc-nodes .st-num { font-size: 10.5px; }
+
+/* 顶栏「示意图」按钮的激活态 */
+.ctl-schematic.is-on {
+  background: var(--ink);
+  color: #fff;
+  border-color: var(--ink);
+}
+
 /* MapLibre 容器默认隐藏，?engine=ml 时由脚本显示 */
 #mlMap.map-ml { display: none; }
 #mlMap .maplibregl-canvas { outline: none; }

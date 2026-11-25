@@ -106,6 +106,28 @@ function bindHud() {
   var settingsBtn = $('#settingsBtn');
   if (settingsBtn) settingsBtn.addEventListener('click', function () { CityUI.openSettings(); });
 
+  // 「示意图」按钮：运行中在地理视图与示意图之间切换（不需要刷新）
+  var schematicBtn = $('#schematicBtn');
+  var syncSchematicBtn = function () {
+    if (!schematicBtn) return;
+    var on = App.engine === 'schematic' && typeof Schematic !== 'undefined' && !!Schematic.root;
+    schematicBtn.textContent = on ? '返回地图' : '示意图';
+    schematicBtn.classList.toggle('is-on', on);
+  };
+  if (schematicBtn) {
+    schematicBtn.addEventListener('click', function () {
+      var on = App.engine === 'schematic' && typeof Schematic !== 'undefined' && !!Schematic.root;
+      if (on) {
+        Schematic.stop();
+      } else {
+        if (typeof Story !== 'undefined') Story.stop();
+        if (Schematic.start()) App.engine = 'schematic';
+      }
+      syncSchematicBtn();
+    });
+  }
+  window.__syncSchematicBtn = syncSchematicBtn;
+
   // 导出视频（页内直出 MP4；不支持 MediaRecorder 的环境自动隐藏按钮）
   var videoBtn = $('#videoBtn');
   if (videoBtn) {
@@ -347,6 +369,7 @@ function boot() {
       if (Schematic.start()) {
         App.engine = 'schematic';
         App.ready = true;
+        if (window.__syncSchematicBtn) window.__syncSchematicBtn();
         return;
       }
     }

@@ -10,10 +10,10 @@
 
 var SCHEMATIC = {
   unit: 64,              // 相邻站点的基准间距（示意图单位）
-  minUnit: 44,           // 最短站间距
+  minUnit: 50,           // 最短站间距（字号放大后留出标签空间）
   maxUnit: 118,          // 最长站间距
   iterations: 240,       // 八方向松弛迭代次数
-  labelGap: 15,          // 标签与圆点的距离（与 CSS 一致）
+  labelGap: 18,          // 标签与圆点的距离（与 CSS 中 16px 字号匹配）
   focusGain: 2.15,       // 特写倍率 = 全景 × 该值
   travel: 1.5,
   maxLabelAttempts: 8
@@ -72,6 +72,38 @@ var Schematic = {
     return true;
   },
 
+  /** 退出示意图：恢复地理视图并重新播放（顶栏按钮用） */
+  stop: function () {
+    if (!this.root) return false;
+    if (this.timeline) {
+      this.timeline.kill();
+      this.timeline = null;
+    }
+    this.running = false;
+    this.finished = false;
+    this.phase = 'idle';
+    if (this.rafId) {
+      cancelAnimationFrame(this.rafId);
+      this.rafId = 0;
+    }
+    this.root.style.display = 'none';
+    this.root.setAttribute('aria-hidden', 'true');
+    this.root.innerHTML = '';
+    this.root = null;
+    this.stage = null;
+    this.svg = null;
+    this.nodesLayer = null;
+    this.nodes = {};
+    this.lines = {};
+    this.layout = null;
+
+    var mapEl = document.getElementById('map');
+    if (mapEl) mapEl.style.display = '';
+    if (typeof App !== 'undefined') App.engine = 'leaflet';
+    if (typeof Story !== 'undefined') Story.replay();
+    return true;
+  },
+
   /** 编辑完成后重新派生示意图（数据变了就重排 + 重绘） */
   rebuild: function () {
     if (!this.root) return false;
@@ -100,14 +132,14 @@ var Schematic = {
     var minUnit = SCHEMATIC.minUnit;
     var maxUnit = SCHEMATIC.maxUnit;
 
-    /* ---------- 1) 每条线：方向吸附到 45°，段长待拟合 ---------- */
-    var lineShapes = plan.lines.map(function (line) {
+    /* ---------- 1) 每条线：方向吸附到 45°，段长按真实距离成比例 ---------- */
+    var geoMaxLen = 0;
+    var rawShapes = plan.lines.map(function (line) {
       var latSum = 0;
       line.stations.forEach(function (station) { latSum += station.lat; });
       var lat0 = latSum / Math.max(1, line.stations.length);
       var kx = Math.cos((lat0 * Math.PI) / 180);
-      var dirs = [];
-      var lens = [];
+      var segs = [];
       for (var i = 1; i < line.stations.length; i += 1) {
         var prev = line.stations[i - 1];
         var next = line.stations[i];
@@ -116,10 +148,24 @@ var Schematic = {
         var lenGeo = Math.hypot(dxGeo, dyGeo);
         var angle = lenGeo > 1e-9 ? Math.atan2(dyGeo, dxGeo) : -Math.PI / 2;
         var snapped = Math.round(angle / (Math.PI / 4)) * (Math.PI / 4);
-        dirs.push({ x: Math.cos(snapped), y: Math.sin(snapped) });
-        lens.push(Math.max(minUnit, Math.min(maxUnit, unit * (0.55 + lenGeo * 9000))));
+        segs.push({ dir: { x: Math.cos(snapped), y: Math.sin(snapped) }, lenGeo: lenGeo });
+        geoMaxLen = Math.max(geoMaxLen, lenGeo);
       }
-      return { line: line, dirs: dirs, lens: lens, offset: { x: 0, y: 0 } };
+      return { line: line, segs: segs };
+    });
+
+    var lineShapes = rawShapes.map(function (raw) {
+      var dirs = [];
+      var lens = [];
+      var targetLens = [];
+      raw.segs.forEach(function (seg) {
+        var share = geoMaxLen > 1e-12 ? seg.lenGeo / geoMaxLen : 0.5;
+        var target = minUnit + (maxUnit - minUnit) * Math.min(1, share);
+        dirs.push(seg.dir);
+        targetLens.push(target);
+        lens.push(target);
+      });
+      return { line: raw.line, dirs: dirs, lens: lens, targetLens: targetLens, offset: { x: 0, y: 0 } };
     });
 
     var shapePosition = function (shape, stationIndex) {
@@ -207,10 +253,10 @@ var Schematic = {
         }
       }
 
-      // 轻微收紧过长段，避免线路越拉越长
+      // 拉回地理比例：段长始终朝"真实距离成比例"的目标靠拢，避免走向被拟合拉扯变形
       lineShapes.forEach(function (shape) {
         for (var i = 0; i < shape.lens.length; i += 1) {
-          shape.lens[i] += (Math.max(minUnit, Math.min(maxUnit, shape.lens[i] * 0.985)) - shape.lens[i]) * 0.05;
+          shape.lens[i] += (shape.targetLens[i] - shape.lens[i]) * 0.06;
         }
       });
     }
@@ -437,14 +483,79 @@ var Schematic = {
       }
     });
 
+    this.fidelity = this.measureFidelity(plan, nodes, order, linePaths);
+
     return {
       nodes: nodes,
       order: order,
       edges: edges,
+      fidelity: this.fidelity,
       lines: linePaths,
       width: width,
       height: height,
       unit: unit * fit
+    };
+  },
+
+  /**
+   * 走向保真度：
+   *  - quadrants：所有站点两两之间，示意图里的相对方位（东北/东南/…）是否与真实地理一致
+   *  - bearingMeanDeg：每条线"首站→末站"的走向与真实方位角的平均偏差
+   * 用来量化"示意图有没有照着真实线路走向来画"。
+   */
+  measureFidelity: function (plan, nodes, order, linePaths) {
+    var latSum = 0;
+    var count = 0;
+    order.forEach(function (key) { latSum += nodes[key].lat; count += 1; });
+    var lat0 = count ? latSum / count : 27.9;
+    var kx = Math.cos((lat0 * Math.PI) / 180);
+
+    var same = 0;
+    var pairs = 0;
+    for (var i = 0; i < order.length; i += 1) {
+      for (var j = i + 1; j < order.length; j += 1) {
+        var a = nodes[order[i]];
+        var b = nodes[order[j]];
+        var gx = (b.lng - a.lng) * kx;
+        var gy = -(b.lat - a.lat);
+        var dx = b.x - a.x;
+        var dy = b.y - a.y;
+        if (Math.abs(gx) < 1e-9 && Math.abs(gy) < 1e-9) continue;
+        pairs += 1;
+        var sx = gx >= 0 ? 1 : -1;
+        var sy = gy >= 0 ? 1 : -1;
+        var tx = dx >= 0 ? 1 : -1;
+        var ty = dy >= 0 ? 1 : -1;
+        // 允许其中一轴接近 0 时只比较主方向
+        var majorGeoX = Math.abs(gx) >= Math.abs(gy);
+        var majorDiaX = Math.abs(dx) >= Math.abs(dy);
+        if (majorGeoX === majorDiaX && (majorGeoX ? sx === tx : sy === ty)) same += 1;
+      }
+    }
+
+    var bearingDiff = 0;
+    var bearingCount = 0;
+    linePaths.forEach(function (entry) {
+      var stations = entry.line.stations;
+      if (stations.length < 2) return;
+      var first = stations[0];
+      var last = stations[stations.length - 1];
+      var gx2 = (last.lng - first.lng) * kx;
+      var gy2 = -(last.lat - first.lat);
+      var geoBearing = Math.atan2(gy2, gx2);
+      var p0 = entry.points[entry.stationIndices[0]];
+      var p1 = entry.points[entry.stationIndices[entry.stationIndices.length - 1]];
+      var diaBearing = Math.atan2(p1.y - p0.y, p1.x - p0.x);
+      var diff = Math.abs(geoBearing - diaBearing);
+      while (diff > Math.PI) diff = Math.abs(diff - Math.PI * 2);
+      bearingDiff += (diff * 180) / Math.PI;
+      bearingCount += 1;
+    });
+
+    return {
+      quadrants: pairs ? Number((same / pairs).toFixed(3)) : 1,
+      pairs: pairs,
+      bearingMeanDeg: bearingCount ? Number((bearingDiff / bearingCount).toFixed(1)) : 0
     };
   },
 
@@ -461,8 +572,8 @@ var Schematic = {
 
     order.forEach(function (key) {
       var node = nodes[key];
-      var guessW = Math.max(30, node.name.length * 12.5);
-      var guessH = 16;
+      var guessW = Math.max(34, node.name.length * 16.5);
+      var guessH = 20;
 
       var boxFor = function (candidate) {
         var w = guessW;
@@ -960,6 +1071,7 @@ var Schematic = {
       scale: Number(this.scale.toFixed(3)),
       panoramaScale: Number(this.panoramaScale.toFixed(3)),
       focusScale: Number(this.focusScale.toFixed(3)),
+      fidelity: this.fidelity || null,
       revealed: Object.keys(this.nodes).filter(function (key) { return self.nodes[key].state !== 'hidden'; }).length
     };
   }

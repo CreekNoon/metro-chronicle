@@ -80,6 +80,56 @@
   add('播放中相机在缩放（特写/全景切换）', Math.abs(S.scale - S.panoramaScale) > 0.05 || S.phase === 'panorama',
     'scale=' + S.scale.toFixed(2) + ' phase=' + S.phase);
 
+  /* ---------- B2 字号 & 标签不重叠 ---------- */
+  const labelInner = document.querySelector('#scMap .sc-nodes .st-label-inner');
+  const labelFont = labelInner ? parseFloat(getComputedStyle(labelInner).fontSize) : 0;
+  add('站名字号放大（≥15px）', labelFont >= 15, labelFont + 'px');
+
+  const labelBoxes = Array.prototype.map.call(
+    document.querySelectorAll('#scMap .sc-nodes .st-label'),
+    (el) => {
+      const rect = el.getBoundingClientRect();
+      return { x: rect.left, y: rect.top, w: rect.width, h: rect.height };
+    }
+  );
+  let labelOverlaps = 0;
+  for (let i = 0; i < labelBoxes.length; i += 1) {
+    for (let j = i + 1; j < labelBoxes.length; j += 1) {
+      const a = labelBoxes[i];
+      const b = labelBoxes[j];
+      const hit = !(a.x + a.w < b.x || b.x + b.w < a.x || a.y + a.h < b.y || b.y + b.h < a.y);
+      if (hit) labelOverlaps += 1;
+    }
+  }
+  add('站名标签互不重叠', labelOverlaps === 0, labelOverlaps + ' 组重叠 / ' + labelBoxes.length + ' 个标签');
+
+  /* ---------- B3 走向保真度（照着真实线路走向生成） ---------- */
+  const fidelity = L.fidelity || (S.fidelity || null);
+  add('记录走向保真度指标', !!fidelity, JSON.stringify(fidelity));
+  if (fidelity) {
+    add('站对相对方位与真实地理一致率 ≥ 75%', fidelity.quadrants >= 0.75,
+      (fidelity.quadrants * 100).toFixed(1) + '% / ' + fidelity.pairs + ' 对');
+    add('每条线整体走向平均偏差 ≤ 12°', fidelity.bearingMeanDeg <= 12, fidelity.bearingMeanDeg + '°');
+  }
+
+  /* ---------- B4 顶栏「示意图」按钮（运行中切换） ---------- */
+  const btn = document.getElementById('schematicBtn');
+  add('顶栏存在示意图按钮', !!btn, btn ? btn.textContent : 'missing');
+  if (btn) {
+    add('进入示意图后按钮文案为「返回地图」', btn.textContent === '返回地图', btn.textContent);
+    btn.click();
+    await sleep(900);
+    add('点击后可返回地图视图',
+      M.engineNow() === 'leaflet' && document.getElementById('scMap').style.display === 'none',
+      M.engineNow() + ' / scMap=' + document.getElementById('scMap').style.display);
+    btn.click();
+    await sleep(1400);
+    add('再次点击可回到示意图',
+      M.engineNow() === 'schematic' && !!M.Schematic.root && M.Schematic.layout.order.length > 0,
+      M.engineNow() + ' / nodes=' + (M.Schematic.layout ? M.Schematic.layout.order.length : 0));
+    add('按钮文案随状态切换', btn.textContent === '返回地图', btn.textContent);
+  }
+
   /* ---------- D 编辑后自动重新派生 ---------- */
   const nodesBefore = S.layout.order.length;
   M.CityUI.switchCity('xiangtan');
