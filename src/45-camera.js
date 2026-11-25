@@ -15,12 +15,12 @@ var CAMERA = {
   focusGain: 2.2,         // 特写比例 A = 全景缩放 + 该值（再夹到下面区间）
   focusMin: 12.5,
   focusMax: 16,
-  flyBack: 1.3,           // 线路画完后拉回全景的时长
-  panoramaHold: 1.0,      // 全景停留（展示整条线路）
+  flyBack: 2.6,           // 线路画完后拉回全景的时长
+  panoramaHold: 2.0,      // 全景停留（展示整条线路）
   lerpCenter: 0.18,       // 每帧向目标中心插值比例
-  zoomDuration: 0.45,     // Leaflet 缩放动画时长（换层级时拉伸旧瓦片，不空白）
+  zoomDuration: 0.9,      // Leaflet 缩放动画兜底时长
   panThresholdPx: 6,      // 中心变化超过该像素才重设视野（减少逐帧重排）
-  flight: 2.4             // 事件之间飞行时长
+  flight: 4.8             // 事件之间飞行时长（整体 0.5× 速度）
 };
 
 var Camera = {
@@ -33,6 +33,7 @@ var Camera = {
   state: { lat: 27.865, lng: 113.135, zoom: 11 },
   target: { lat: 27.865, lng: 113.135, zoom: 11 },
   flightTween: null,
+  flightTimer: 0,
 
   /** 设定全景比例，并据此推出统一的特写比例 A */
   setPanorama: function (zoom) {
@@ -86,7 +87,7 @@ var Camera = {
     var map = App.map;
     if (!map) return;
     // 非镜头叙事期间（编辑、手动缩放、播放结束）不驱动视野，只保持同步
-    if (!this.active || this.suspended || Edit.active) {
+    if (!this.active || this.suspended || Edit.active || this.flying) {
       this.syncFromMap();
       return;
     }
@@ -97,22 +98,7 @@ var Camera = {
     s.lat += (t.lat - s.lat) * kc;
     s.lng += (t.lng - s.lng) * kc;
 
-    // 向下取整：四舍五入会把「刚好装下整条线」的取景放大一级，长线两端会被裁到画面外
-    var targetLevel = Math.floor(clamp(t.zoom, 4, 17) + 0.03);
-    var currentLevel = Math.round(map.getZoom());
-
-    // 需要换层级：走 Leaflet 的缩放动画（动画中不叠加新的缩放，避免打架）
-    if (targetLevel !== currentLevel) {
-      if (map._animatingZoom) return;
-      s.zoom = targetLevel;
-      map.setView(L.latLng(s.lat, s.lng), targetLevel, {
-        animate: true,
-        duration: CAMERA.zoomDuration
-      });
-      return;
-    }
-
-    // 同层级：只平移（保留当前缩放，避免无谓重排）
+    // 缩放只在「事件之间的飞行」里变化（一次动画到位），跟拍阶段只平移，绝不逐级跳动
     s.zoom = map.getZoom();
     var center = map.getCenter();
     var scale = 360 / (256 * Math.pow(2, map.getZoom()));
@@ -127,12 +113,24 @@ var Camera = {
 
   /* ------------------------------------------------------------ 目标设定 */
 
-  /** 预热某个中心点附近的瓦片（目标层级 ±1），用于换层前消除空白 */
+  /**
+   * 预热「目标层级下会看到的整屏范围」的瓦片（±1 层）：
+   * 视野越小/越大都按目标层级的实际视口算，换层动画结束时就已命中缓存。
+   */
   prefetchForZoom: function (lat, lng, zoom) {
     if (typeof Basemap === 'undefined' || !Basemap.prefetch || !App.map) return;
-    var pad = 0.06;
-    var bounds = L.latLngBounds([[lat - pad, lng - pad], [lat + pad, lng + pad]]);
-    Basemap.prefetch(bounds, [zoom - 1, zoom, zoom + 1]);
+    var map = App.map;
+    var level = this.levelOf(zoom);
+    var size = map.getSize();
+    var degPerTile = 360 / Math.pow(2, level);
+    var lngHalf = (size.x / 256) * degPerTile / 2;
+    var latHalf = (size.y / 256) * degPerTile / 2 / Math.max(0.2, Math.cos(lat * Math.PI / 180));
+    var pad = 1.12;
+    var bounds = L.latLngBounds([
+      [lat - latHalf * pad, lng - lngHalf * pad],
+      [lat + latHalf * pad, lng + lngHalf * pad]
+    ]);
+    Basemap.prefetch(bounds, [level - 1, level, level + 1]);
   },
 
   /** 直接把当前视野吸附到目标（每个事件开画前对齐构图） */
@@ -148,16 +146,13 @@ var Camera = {
     this.target.lng = center[1];
     this.target.zoom = z;
     if (!map) return;
-    if (Math.round(map.getZoom()) === level) {
-      // 层级没变：只对齐中心，不触发任何缩放重排
-      map.setView(L.latLng(center[0], center[1]), map.getZoom(), { animate: false });
+    var current = map.getZoom();
+    if (Math.abs(current - level) > 0.01) {
+      // 极少数情况（比如首帧）层级还没对上：走一次动画，不做硬切
+      map.setView(L.latLng(center[0], center[1]), level, { animate: true, duration: CAMERA.zoomDuration });
       return;
     }
-    // 层级要变：同样走 Leaflet 缩放动画，避免换层瞬间空白
-    map.setView(L.latLng(center[0], center[1]), level, {
-      animate: true,
-      duration: CAMERA.zoomDuration
-    });
+    map.setView(L.latLng(center[0], center[1]), current, { animate: false });
   },
 
   /** 直接把视图设为目标（带像素阈值），再让 state 吸附 */
@@ -229,30 +224,34 @@ var Camera = {
     if (!map) return null;
     var opts = options || {};
     var duration = opts.duration === undefined ? CAMERA.flight : opts.duration;
-    var from = { lat: this.target.lat, lng: this.target.lng, zoom: this.target.zoom };
-    var to = { lat: center[0], lng: center[1], zoom: zoom };
-    var distance = L.latLng(from.lat, from.lng).distanceTo(L.latLng(to.lat, to.lng));
-    var dip = opts.dip === undefined ? clamp(distance / 34000, 0.15, 0.55) : opts.dip;
+    var level = this.levelOf(zoom);
     var self = this;
-    // 起飞前预热目标层级 ±1，换层瞬间直接命中缓存
-    this.prefetchForZoom(to.lat, to.lng, to.zoom);
-    var proxy = { t: 0 };
-    killTweens(proxy);
-    if (this.flightTween) killTweens(this.flightTween);
-    this.flightTween = proxy;
+
+    // 一次动画完成「平移 + 缩放」：Leaflet 内部会连续缩放并拉伸旧瓦片，
+    // 既不会有逐级顿挫，也不会出现换层空白
+    this.prefetchForZoom(center[0], center[1], level);
     this.flying = true;
-    return gsap.to(proxy, {
-      t: 1,
-      duration: duration,
-      ease: opts.ease || 'power2.inOut',
-      onComplete: function () { self.flying = false; },
-      onUpdate: function () {
-        var k = proxy.t;
-        self.target.lat = from.lat + (to.lat - from.lat) * k;
-        self.target.lng = from.lng + (to.lng - from.lng) * k;
-        self.target.zoom = from.zoom + (to.zoom - from.zoom) * k - dip * Math.sin(Math.PI * k);
-      }
+    this.target.lat = center[0];
+    this.target.lng = center[1];
+    this.target.zoom = level;
+    killTweens(this.flightTween);
+    window.clearTimeout(this.flightTimer);
+    map.setView(L.latLng(center[0], center[1]), level, {
+      animate: true,
+      duration: duration
     });
+    this.flightTimer = window.setTimeout(function () {
+      self.flying = false;
+      self.state.lat = center[0];
+      self.state.lng = center[1];
+      self.state.zoom = level;
+    }, Math.max(150, duration * 1000 + 80));
+    return null;
+  },
+
+  /** 统一把「取景缩放」落到整数层级（瓦片原生清晰） */
+  levelOf: function (zoom) {
+    return Math.floor(clamp(zoom, 4, 17) + 0.03);
   },
 
   /** 某一组经纬度点的适配视野（用于全览；留白比单线更大，因此一定比单线更远） */

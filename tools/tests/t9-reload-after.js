@@ -18,7 +18,7 @@
     M.snapshot().storage);
 
   const t0 = performance.now();
-  while (!M.Story.finished && performance.now() - t0 < 80000) await sleep(120);
+  while (!M.Story.finished && performance.now() - t0 < 150000) await sleep(120);
   const snap = M.snapshot();
   const entries = A.plan.lines.reduce((sum, l) => sum + l.stations.length, 0);
   add('刷新后完整播放', snap.story.finished === true, Math.round(performance.now() - t0) + 'ms');

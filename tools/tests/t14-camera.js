@@ -66,7 +66,7 @@
   let stationEventSample = null;
   const lineZooms = {};
   const t0 = performance.now();
-  while (performance.now() - t0 < 70000) {
+  while (performance.now() - t0 < 150000) {
     if (St.finished) break;
     await sleep(110);
     const size = map.getSize();

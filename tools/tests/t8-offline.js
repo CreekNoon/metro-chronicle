@@ -6,7 +6,7 @@
   const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
   const t0 = performance.now();
-  while (!M.Story.finished && performance.now() - t0 < 80000) await sleep(120);
+  while (!M.Story.finished && performance.now() - t0 < 150000) await sleep(120);
   const snap = M.snapshot();
   const plan = A.plan;
   const lastLine = plan.lines[plan.lines.length - 1];

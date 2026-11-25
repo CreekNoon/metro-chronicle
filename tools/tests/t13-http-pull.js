@@ -14,7 +14,7 @@
   add('自动开始播放', M.Story.playing === true || M.Story.finished === true, JSON.stringify(M.snapshot().story));
 
   const t0 = performance.now();
-  while (!M.Story.finished && performance.now() - t0 < 80000) await sleep(120);
+  while (!M.Story.finished && performance.now() - t0 < 150000) await sleep(120);
   add('播放可完整结束', M.Story.finished === true, Math.round(performance.now() - t0) + 'ms');
 
   /* 清除城市方案：同时清理服务端与本地 */

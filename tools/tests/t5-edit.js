@@ -234,7 +234,7 @@
     add('退出后从头播放（首条线路场景）', M.snapshot().badge === A.plan.lines[0].badge, M.snapshot().badge);
     add('退出后地图重新锁定', A.locked === true && A.map.dragging.enabled() === false);
     const t0 = performance.now();
-    while (!M.Story.finished && performance.now() - t0 < 80000) await sleep(120);
+    while (!M.Story.finished && performance.now() - t0 < 150000) await sleep(120);
     const end = M.snapshot();
     add('播放可完整结束', end.story.finished === true, Math.round(performance.now() - t0) + 'ms');
     add('跨线加入的站点显示为换乘', end.stationStates[lineTwoOnly.key] === 'transfer', end.stationStates[lineTwoOnly.key]);

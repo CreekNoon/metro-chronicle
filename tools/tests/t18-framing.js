@@ -30,6 +30,8 @@
   add('全景层级能装下整张线网（高）', Math.abs(se.y - nw.y) <= size.y * 0.98, Math.round(Math.abs(se.y - nw.y)) + '/' + size.y);
 
   /* ---- C 实跑：每条线都在 A 上绘制，画完回到全景 ---- */
+  let zoomStarts = 0;
+  map.on('zoomstart', function () { zoomStarts += 1; });
   St.play();
   const drawZooms = {};
   const panoramaReturns = [];
@@ -37,7 +39,7 @@
   let headsInside = 0;
   let headSamples = 0;
   const t0 = performance.now();
-  while (performance.now() - t0 < 90000) {
+  while (performance.now() - t0 < 150000) {
     if (St.finished) break;
     await sleep(100);
     const zoom = map.getZoom();
@@ -68,6 +70,7 @@
   await sleep(500);
 
   const keys = Object.keys(drawZooms);
+  add('缩放切换一次到位（缩放动画次数≈事件切换次数，无逐级顿挫）', zoomStarts <= 12, zoomStarts + ' 次动画 / ' + A.plan.lines.length + ' 条线路');
   add('每条线路都在特写比例上绘制', keys.length >= 3 && keys.every((k) => Math.abs(drawZooms[k][0] - drawZooms[k][1]) < 0.01),
     keys.map((k) => k + '=' + drawZooms[k][0]).join(' '));
   add('各线路使用的比例完全相同', keys.every((k) => Math.abs(drawZooms[k][0] - drawZooms[keys[0]][0]) < 0.01),

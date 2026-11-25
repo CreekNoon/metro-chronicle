@@ -7,7 +7,7 @@
 
   // 上一阶段（保存地图源）会触发自动重播，这里先等它跑完
   let waitStart = performance.now();
-  while (!M.Story.finished && performance.now() - waitStart < 80000) await sleep(120);
+  while (!M.Story.finished && performance.now() - waitStart < 150000) await sleep(120);
   await sleep(700);
   const endBefore = M.snapshot();
   add('重播前为完成态', endBefore.story.finished === true, JSON.stringify(endBefore.story));
