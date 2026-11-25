@@ -73,10 +73,9 @@ body {
 
 .basemap-vector.is-on { opacity: 1; }
 
-/* 高德瓦片：轻微去饱和，贴近整体浅灰调性（不影响定位对齐） */
-.basemap-amap .leaflet-tile-pane {
-  filter: grayscale(0.52) saturate(0.78) brightness(1.05) contrast(0.97);
-}
+/* 高德瓦片不再用 CSS 滤镜（滤镜会让每个瓦片重新栅格化，连续缩放时容易闪）；
+   改用图层自身 0.94 不透明度，视觉上同样更柔和 */
+.basemap-backdrop { pointer-events: none; }
 
 /* 线路图层：三层描边由 JS 分三个 polyline 绘制，这里只做视觉微调 */
 .route-glow { pointer-events: none; }

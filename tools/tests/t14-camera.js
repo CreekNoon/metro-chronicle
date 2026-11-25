@@ -96,7 +96,7 @@
       if (op > 0.25) visibleCount += 1;
       if (op > 0.9 && (!visible || op > visible.op)) visible = { key: key, route: route, op: op };
     });
-    if (!St.drawing || C.flying || visibleCount !== 1 || !visible) continue;
+    if (!St.drawing || C.flying || map._animatingZoom || visibleCount !== 1 || !visible) continue;
 
     const head = visible.route.head.getLatLng();
     const headPt = map.latLngToContainerPoint(head);

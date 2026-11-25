@@ -3,7 +3,7 @@
 极简、克制的**单文件**地铁线网开通动画纪事：以虚构的「株洲市地铁」为默认场景，**按开通日期先后**逐条播放线路开通与单站启用；镜头会像特写一样跟住正在延伸的线路，事件之间拉远平移再推近，最后收束成全网全览。支持多线路（地铁 + 城际铁路）、城市切换、地图点选编辑线网、高德底图，并附带一个**零依赖 Node 后端**用于方案的服务端存储。
 
 - 交付物：`地铁线网开通纪事.html`（约 435 KB，**双击即开**，内联 Leaflet 1.9.4 + GSAP 3.12.5，无需构建、无需联网即可播放）
-- 自测：**412 项自动化断言全部通过**，见 [docs/自测结果.md](docs/自测结果.md)
+- 自测：**428 项自动化断言全部通过**，见 [docs/自测结果.md](docs/自测结果.md)
 
 ![桌面终态](docs/screenshots/desktop.png)
 
@@ -67,7 +67,7 @@ API 与数据格式见 [server/README.md](server/README.md)。
 │  ├─ probe.mjs              # 无依赖 CDP 探针（真实 Chrome 渲染 + 控制台/异常采集）
 │  ├─ run.mjs                # 测试运行器（可读报告）
 │  ├─ tune.mjs               # 里程标定脚本
-│  └─ tests/*.js             # 16 套断言脚本
+│  └─ tests/*.js             # 18 套断言脚本
 └─ docs/                     # 截图与自测报告
 ```
 
@@ -78,6 +78,8 @@ node build.mjs                 # 生成 ./地铁线网开通纪事.html
 node tools/run.mjs --wait=30000 --eval=tools/tests/t1-baseline.js
 node tools/run.mjs --wait=2000  --eval=tools/tests/t14-camera.js    # 镜头：固定缩放 / 单站特写 / 全览
 node tools/run.mjs --wait=2000  --eval=tools/tests/t15-progressive.js  # 换乘配色渐进（2 色 → 3 色）
+node tools/run.mjs --wait=2000  --eval=tools/tests/t17-flicker.js      # 播放全程无空白帧
+node tools/run.mjs --wait=2000  --eval=tools/tests/t18-framing.js      # 每线取景装得下整线
 ```
 
 测试基于真实 Chrome（CDP 驱动，无 npm 依赖），支持 `--offline`（断网模拟）、`--mobile`（390×844）、`--page=http://…`（前后端）、`--eval=__RELOAD__`（页面重载后校验持久化）。完整命令清单见 [docs/自测结果.md](docs/自测结果.md)。

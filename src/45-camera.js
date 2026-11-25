@@ -13,9 +13,9 @@ var CAMERA = {
   linePadding: 96,        // 单线取景留白（像素）
   overviewPadding: 150,   // 全览留白（像素，比单线更大 → 全览一定比单线更远）
   zoomStep: 0.75,         // 换级滞回：只在事件之间换级，线路运行途中不改缩放
-  lerpCenter: 0.16,       // 每帧向目标中心插值比例
-  lerpZoom: 0.14,         // 每帧向目标 zoom 插值比例
-  panThresholdPx: 3,      // 中心变化超过该像素才重设视野
+  lerpCenter: 0.18,       // 每帧向目标中心插值比例
+  zoomDuration: 0.45,     // Leaflet 缩放动画时长（换层级时拉伸旧瓦片，不空白）
+  panThresholdPx: 6,      // 中心变化超过该像素才重设视野（减少逐帧重排）
   flight: 2.7             // 事件之间飞行时长（整体 0.5× 速度）
 };
 
@@ -63,6 +63,12 @@ var Camera = {
 
   /* ------------------------------------------------------------ 每帧推进 */
 
+  /**
+   * 每帧推进：
+   * 1) 中心用插值平滑逼近目标（纯平移，不换层级）；
+   * 2) 缩放只按「整数层级」切换，并且交给 Leaflet 的缩放动画（动画期间它拉伸旧瓦片，
+   *    换层时画面不空白 —— 这是避免闪烁的关键；逐帧小数缩放反而每次跨层都会闪）。
+   */
   tick: function () {
     var map = App.map;
     if (!map) return;
@@ -71,43 +77,66 @@ var Camera = {
       this.syncFromMap();
       return;
     }
+
     var s = this.state;
     var t = this.target;
     var kc = CAMERA.lerpCenter;
-    var kz = (t.zoom < s.zoom) ? 0.3 : CAMERA.lerpZoom;
     s.lat += (t.lat - s.lat) * kc;
     s.lng += (t.lng - s.lng) * kc;
-    s.zoom += (t.zoom - s.zoom) * kz;
 
-    // 连续缩放：平滑过渡（瓦片由 Leaflet 自动缩放复用，配合预取不会出现空白）
-    var appliedZoom = clamp(s.zoom, 4, 17);
+    // 向下取整：四舍五入会把「刚好装下整条线」的取景放大一级，长线两端会被裁到画面外
+    var targetLevel = Math.floor(clamp(t.zoom, 4, 17) + 0.03);
+    var currentLevel = Math.round(map.getZoom());
+
+    // 需要换层级：走 Leaflet 的缩放动画（动画中不叠加新的缩放，避免打架）
+    if (targetLevel !== currentLevel) {
+      if (map._animatingZoom) return;
+      s.zoom = targetLevel;
+      map.setView(L.latLng(s.lat, s.lng), targetLevel, {
+        animate: true,
+        duration: CAMERA.zoomDuration
+      });
+      return;
+    }
+
+    // 同层级：只平移（保留当前缩放，避免无谓重排）
+    s.zoom = map.getZoom();
     var center = map.getCenter();
-    var scale = 360 / (256 * Math.pow(2, appliedZoom));         // 每像素经度跨度
+    var scale = 360 / (256 * Math.pow(2, map.getZoom()));
     var latRad = center.lat * Math.PI / 180;
     var px = Math.max(
       Math.abs(s.lng - center.lng) / scale,
       Math.abs(s.lat - center.lat) / (scale * Math.max(0.2, Math.cos(latRad)))
     );
-    var zoomChanged = Math.abs(appliedZoom - map.getZoom()) > 0.012;
-    if (!zoomChanged && px < CAMERA.panThresholdPx) return;
-
-    map.setView(L.latLng(s.lat, s.lng), appliedZoom, { animate: false });
+    if (px < CAMERA.panThresholdPx) return;
+    map.setView(L.latLng(s.lat, s.lng), map.getZoom(), { animate: false });
   },
 
   /* ------------------------------------------------------------ 目标设定 */
 
-  /** 直接把当前视野吸附到目标（用于每个事件开画前对齐构图，避免残差） */
+  /** 直接把当前视野吸附到目标（每个事件开画前对齐构图） */
   snapTo: function (center, zoom) {
     this.flying = false;
     var map = App.map;
-    var z = clamp(zoom, 4, 17);           // 保留小数：平滑、不跳级
+    var z = clamp(zoom, 4, 17);
+    var level = Math.floor(z + 0.03);      // 与 tick 一致：向下取整，保证整条线装得下
     this.state.lat = center[0];
     this.state.lng = center[1];
-    this.state.zoom = z;
+    this.state.zoom = level;
     this.target.lat = center[0];
     this.target.lng = center[1];
     this.target.zoom = z;
-    if (map) map.setView(L.latLng(center[0], center[1]), z, { animate: false });
+    if (!map) return;
+    if (Math.round(map.getZoom()) === level) {
+      // 层级没变：只对齐中心，不触发任何缩放重排
+      map.setView(L.latLng(center[0], center[1]), map.getZoom(), { animate: false });
+      return;
+    }
+    // 层级要变：同样走 Leaflet 缩放动画，避免换层瞬间空白
+    map.setView(L.latLng(center[0], center[1]), level, {
+      animate: true,
+      duration: CAMERA.zoomDuration
+    });
   },
 
   /** 直接把视图设为目标（带像素阈值），再让 state 吸附 */
@@ -157,7 +186,7 @@ var Camera = {
     var from = { lat: this.target.lat, lng: this.target.lng, zoom: this.target.zoom };
     var to = { lat: center[0], lng: center[1], zoom: zoom };
     var distance = L.latLng(from.lat, from.lng).distanceTo(L.latLng(to.lat, to.lng));
-    var dip = opts.dip === undefined ? clamp(distance / 16000, 0.3, 1.6) : opts.dip;
+    var dip = opts.dip === undefined ? clamp(distance / 34000, 0.15, 0.55) : opts.dip;
     var self = this;
     var proxy = { t: 0 };
     killTweens(proxy);

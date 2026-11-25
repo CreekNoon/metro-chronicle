@@ -208,6 +208,7 @@ var Story = {
           Camera.snapTo(startPoint, targetZoom);      // 开画前对齐构图，避免飞行残差
           self.beginLine(event);
         }, null, landAt - 0.1);
+        var settle = 0.4;                     // 等镜头缩放动画落定再开始画线
         tl.to(slot, {
           value: 1,
           duration: duration,
@@ -218,12 +219,12 @@ var Story = {
             if (head) Camera.panTo([(startPoint[0] + head[0]) / 2, (startPoint[1] + head[1]) / 2]);
             self.syncRevealedStats();
           }
-        }, landAt);
+        }, landAt + settle);
         tl.call(function () {
           self.drawing = false;
           Scene.setHeadVisible(event.lineIndex, false);
-        }, null, landAt + duration + 0.05);
-        cursor = landAt + duration + timing.gap;
+        }, null, landAt + settle + duration + 0.05);
+        cursor = landAt + settle + duration + timing.gap;
       } else {
         /* --- 单站开通：只点亮一个点（固定特写缩放，不再推近） --- */
         tl.call(function () {
@@ -466,7 +467,14 @@ var Story = {
 
   skip: function () {
     if (!this.tl || this.finished) return;
+    // 跳过时不追中间构图（否则会瞬间连跨多个缩放层级、狂拉瓦片）
+    if (typeof Camera !== 'undefined') Camera.active = false;
     this.tl.progress(1, false);
+    var overview = this.overviewTarget();
+    if (overview && typeof Camera !== 'undefined') {
+      Camera.snapTo([overview.center.lat, overview.center.lng], overview.zoom);
+    }
+    if (typeof ZoomUI !== 'undefined') ZoomUI.setEnabled(true);
   },
 
   /* --------------------------------------------------------------- 复位 */

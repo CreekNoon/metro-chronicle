@@ -62,10 +62,12 @@ function createMap() {
     scrollWheelZoom: false,   // 不允许用滚轮改比例
     keyboard: true,
     preferCanvas: false,
-    // 镜头自己驱动视野：关掉 Leaflet 自身的缩放/瓦片淡入动画，避免逐帧重绘造成的闪烁
-    zoomAnimation: false,
+    // 关键：开启 Leaflet 的缩放动画 —— 换层级时它会先拉伸旧瓦片、再切换新瓦片，
+    // 期间画面不会空白（关掉它反而会在每次跨层时闪一下）。瓦片淡入仍关闭。
+    zoomAnimation: true,
+    zoomAnimationThreshold: 6,
     fadeAnimation: false,
-    markerZoomAnimation: false
+    markerZoomAnimation: true
   });
   App.map.on('click', function (event) { Edit.onMapClick(event); });
   setMapLocked(true);

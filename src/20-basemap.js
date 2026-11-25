@@ -95,6 +95,8 @@ var Basemap = {
   datum: 'wgs84',
   attribution: BASEMAP_ATTRIBUTION.blank,
   rasterLayers: [],
+  amapLayer: null,
+  primaryLayer: null,       // 当前的高分辨率主瓦片层（预取/诊断用）
   vectorEl: null,
   vectorMap: null,
   vectorReady: false,
@@ -166,6 +168,29 @@ var Basemap = {
 
   /* ------------------------------------------------------------ 栅格 */
 
+  /**
+   * 低分辨率底色层：请求「低 2 级」的瓦片并放大铺满。
+   * 作用：主图层切换瓦片层级、或新瓦片还没加载完时，画面不会露白/闪一下，
+   * 始终有一层已缓存的地图在底下。
+   */
+  createBackdrop: function (kind) {
+    var isAmap = kind === 'amap';
+    var layer = L.tileLayer(isAmap ? BASEMAP_SOURCES.amapTiles : BASEMAP_SOURCES.esriBase, {
+      subdomains: isAmap ? '1234' : 'abc',
+      maxZoom: 19,
+      maxNativeZoom: isAmap ? 18 : 16,
+      zoomOffset: -2,               // 低两级取图，由 Leaflet 放大
+      crossOrigin: true,
+      keepBuffer: 4,
+      updateWhenZooming: false,
+      className: 'basemap-backdrop',
+      opacity: 1,
+      pane: 'tilePane'
+    });
+    layer.addTo(this.map);
+    return layer;
+  },
+
   /** 铺（或恢复）Esri 灰度栅格：始终作为兜底层 */
   showRaster: function () {
     if (!this.map) return;
@@ -179,11 +204,13 @@ var Basemap = {
       if (this.mode !== 'amap') this.setModeForRaster();
       return;
     }
+
+    var backdrop = this.createBackdrop('esri');
     var base = L.tileLayer(BASEMAP_SOURCES.esriBase, {
       maxZoom: 19,
       maxNativeZoom: 16,
       crossOrigin: true,
-      keepBuffer: 10,            // 多留几圈瓦片，平移/缩放时不易出现空白
+      keepBuffer: 12,            // 多留几圈瓦片，平移/缩放时不易出现空白
       updateWhenZooming: false,
       pane: 'tilePane'
     });
@@ -191,13 +218,14 @@ var Basemap = {
       maxZoom: 19,
       maxNativeZoom: 16,
       crossOrigin: true,
-      keepBuffer: 10,
+      keepBuffer: 12,
       updateWhenZooming: false,
       pane: 'tilePane'
     });
     base.addTo(this.map);
     reference.addTo(this.map);
-    this.rasterLayers = [base, reference];
+    this.rasterLayers = [backdrop, base, reference];
+    this.primaryLayer = base;
     this.setModeForRaster();
   },
 
@@ -212,6 +240,7 @@ var Basemap = {
       try { map.removeLayer(layer); } catch (err) { /* noop */ }
     });
     this.rasterLayers = [];
+    this.primaryLayer = null;
   },
 
   /* ------------------------------------------------------------ 高德 */
@@ -221,18 +250,22 @@ var Basemap = {
     this.destroyVector();
     this.removeRaster();
 
+    var backdrop = this.createBackdrop('amap');
     var layer = L.tileLayer(BASEMAP_SOURCES.amapTiles, {
       subdomains: '1234',
       maxZoom: 19,
       maxNativeZoom: 18,
       className: 'basemap-amap',
       crossOrigin: true,
-      keepBuffer: 10,            // 多留几圈瓦片，镜头平移时不易出现空白
+      keepBuffer: 12,            // 多留几圈瓦片，镜头平移时不易出现空白
       updateWhenZooming: false,
+      opacity: 0.94,             // 轻微透明代替 CSS 滤镜（逐帧滤镜会重绘、闪烁）
       pane: 'tilePane'
     });
     layer.addTo(this.map);
     this.amapLayer = layer;
+    this.primaryLayer = layer;
+    this.rasterLayers = [backdrop, layer];
 
     // 高德瓦片为 GCJ-02，渲染坐标需要投影（编辑与持久化仍用 WGS84）
     this.setMode('amap', 'gcj02');
@@ -428,7 +461,7 @@ var Basemap = {
   prefetch: function (bounds, levels) {
     var map = this.map;
     if (!map || !bounds || !bounds.isValid || !bounds.isValid()) return 0;
-    var layer = this.amapLayer || this.rasterLayers[0];
+    var layer = this.primaryLayer || this.amapLayer || this.rasterLayers[this.rasterLayers.length - 1];
     if (!layer || typeof layer.getTileUrl !== 'function') return 0;
 
     var maxNative = layer.options.maxNativeZoom || 18;
