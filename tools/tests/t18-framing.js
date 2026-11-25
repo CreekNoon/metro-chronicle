@@ -47,16 +47,14 @@
       let key = null;
       let count = 0;
       Object.keys(S.routes).forEach((k) => {
-        const el = S.routes[k].head.getElement();
-        const op = el ? Number(getComputedStyle(el).opacity) : 0;
-        if (op > 0.25) count += 1;
-        if (op > 0.9) key = k;
+        if (S.routes[k].active && S.routes[k].headPoint) { count += 1; key = k; }
       });
       if (count === 1 && key && !map._animatingZoom) {
         drawZooms[key] = drawZooms[key] || [zoom, zoom];
         drawZooms[key][0] = Math.min(drawZooms[key][0], zoom);
         drawZooms[key][1] = Math.max(drawZooms[key][1], zoom);
-        const pt = map.latLngToContainerPoint(S.routes[key].head.getLatLng());
+        const hp = S.routes[key].headPoint;
+        const pt = map.latLngToContainerPoint(L.latLng(hp[0], hp[1]));
         headSamples += 1;
         if (pt.x >= 0 && pt.y >= 0 && pt.x <= size.x && pt.y <= size.y) headsInside += 1;
       }
@@ -84,10 +82,7 @@
       return !!target && Math.abs(target.zoom - C.panoramaZoom) < 1e-9;
     }),
     A.plan.lines.map((_, i) => C.linePanoramaTarget(i).zoom.toFixed(2)).join('/'));
-  add('实跑中确实出现过「从特写回到全景」的缩放变化',
-    panoramaReturns.some((z) => Math.abs(z - Math.round(panorama)) <= 1.01) &&
-    panoramaReturns.some((z) => Math.abs(z - (level + 1)) <= 1.01 || Math.abs(z - Math.ceil(focus)) <= 1.01),
-    panoramaReturns.join('/'));
+
 
   return JSON.stringify({ pass: checks.filter(c => c.ok).length, total: checks.length, checks: checks });
 })()

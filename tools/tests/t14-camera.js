@@ -91,14 +91,11 @@
     let visibleCount = 0;
     Object.keys(S.routes).forEach((key) => {
       const route = S.routes[key];
-      const el = route.head.getElement();
-      const op = el ? Number(getComputedStyle(el).opacity) : 0;
-      if (op > 0.25) visibleCount += 1;
-      if (op > 0.9 && (!visible || op > visible.op)) visible = { key: key, route: route, op: op };
+      if (route.active && route.headPoint) { visibleCount += 1; visible = { key: key, route: route, op: 1 }; }
     });
     if (!St.drawing || C.flying || map._animatingZoom || visibleCount !== 1 || !visible) continue;
 
-    const head = visible.route.head.getLatLng();
+    const head = L.latLng(visible.route.headPoint[0], visible.route.headPoint[1]);
     const headPt = map.latLngToContainerPoint(head);
     const start = S.geometries[visible.key].render[0];
     const startPt = map.latLngToContainerPoint(L.latLng(start[0], start[1]));

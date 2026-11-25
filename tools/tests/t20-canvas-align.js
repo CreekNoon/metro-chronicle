@@ -24,10 +24,7 @@
     let key = null;
     let count = 0;
     Object.keys(S.routes).forEach((k) => {
-      const el = S.routes[k].head.getElement();
-      const op = el ? Number(getComputedStyle(el).opacity) : 0;
-      if (op > 0.25) count += 1;
-      if (op > 0.9) key = k;
+      if (S.routes[k].active && S.routes[k].headPoint) { count += 1; key = k; }
     });
     return count === 1 ? key : null;
   };
@@ -48,8 +45,8 @@
     if (!key) continue;
     const geo = S.geometries[key];
     if (!geo) continue;
-    const head = S.routes[key].head.getLatLng();
-    const headPt = map.latLngToContainerPoint(head);
+    const hp = S.routes[key].headPoint;
+    const headPt = map.latLngToContainerPoint(L.latLng(hp[0], hp[1]));
     const size = map.getSize();
     if (headPt.x < 0 || headPt.y < 0 || headPt.x > size.x || headPt.y > size.y) continue;
 

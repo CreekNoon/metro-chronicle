@@ -760,32 +760,7 @@ body {
 .route-casing { pointer-events: none; }
 .route-main { pointer-events: none; }
 
-/* 头部标记 */
-.route-head-icon {
-  width: 0 !important;
-  height: 0 !important;
-  overflow: visible !important;
-}
-
-.route-head {
-  position: absolute;
-  left: 0;
-  top: 0;
-  width: 0;
-  height: 0;
-}
-
-.route-head span {
-  position: absolute;
-  left: -8px;
-  top: -8px;
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  background: #fff;
-  border: 3px solid var(--line-color, #e60012);
-  box-shadow: 0 2px 10px rgba(18, 22, 27, 0.22);
-}
+/* 线路延伸过程中不再渲染「跟随圆点」：推进到哪个站，就在那里生成站点圆点 */
 
 /* ------------------------------------------------------------------ 遮罩 */
 
@@ -3340,6 +3315,216 @@ window.addEventListener('pagehide', function () {
   if (RemoteStore.enabled && Object.keys(RemoteStore.pending).length) RemoteStore.flush();
 });
 
+/* ===== 18-tile-cache.js ===== */
+/* ==========================================================================
+   18 · 底图瓦片缓存（IndexedDB）
+   —— 让底图第一次加载后落到本地，之后的刷新/重开直接从本地取，
+      不再"每次地图都重新加载"。
+      没有 IndexedDB（或隐私模式）时自动退化为内存缓存，功能不受影响。
+   ========================================================================== */
+
+var TileCache = {
+  dbName: 'metroChronicle.tiles.v1',
+  store: 'tiles',
+  db: null,
+  opening: null,
+  enabled: null,          // null=未探测
+  mem: {},                // url → objectURL（同一会话内直接命中）
+  stats: { hit: 0, miss: 0, put: 0, fail: 0, memHit: 0 },
+
+  available: function () {
+    return typeof indexedDB !== 'undefined' && indexedDB !== null;
+  },
+
+  open: function () {
+    var self = this;
+    if (this.opening) return this.opening;
+    if (!this.available()) { this.enabled = false; return Promise.resolve(null); }
+
+    this.opening = new Promise(function (resolve) {
+      var req;
+      try {
+        req = indexedDB.open(self.dbName, 1);
+      } catch (err) {
+        self.enabled = false;
+        resolve(null);
+        return;
+      }
+      req.onupgradeneeded = function () {
+        var db = req.result;
+        if (!db.objectStoreNames.contains(self.store)) db.createObjectStore(self.store);
+      };
+      req.onsuccess = function () {
+        self.db = req.result;
+        self.enabled = true;
+        resolve(self.db);
+      };
+      req.onerror = function () {
+        self.enabled = false;
+        self.stats.fail += 1;
+        resolve(null);
+      };
+      req.onblocked = function () { resolve(null); };
+    });
+    return this.opening;
+  },
+
+  /** 读缓存：命中时返回可直接赋给 img.src 的 objectURL */
+  get: function (url) {
+    var self = this;
+    if (this.mem[url]) {
+      this.stats.memHit += 1;
+      this.stats.hit += 1;
+      return Promise.resolve(this.mem[url]);
+    }
+    if (!this.enabled || !this.db) {
+      this.stats.miss += 1;
+      return Promise.resolve(null);
+    }
+    return new Promise(function (resolve) {
+      var tx;
+      try {
+        tx = self.db.transaction(self.store, 'readonly');
+      } catch (err) {
+        self.stats.miss += 1;
+        resolve(null);
+        return;
+      }
+      var req = tx.objectStore(self.store).get(url);
+      req.onsuccess = function () {
+        var entry = req.result;
+        if (!entry || !entry.blob) {
+          self.stats.miss += 1;
+          resolve(null);
+          return;
+        }
+        var objectUrl = URL.createObjectURL(entry.blob);
+        self.mem[url] = objectUrl;
+        self.stats.hit += 1;
+        resolve(objectUrl);
+      };
+      req.onerror = function () {
+        self.stats.miss += 1;
+        resolve(null);
+      };
+    });
+  },
+
+  /** 联网取瓦片并写入缓存；失败返回 null（调用方回退为直接用原始 URL） */
+  load: function (url) {
+    var self = this;
+    return fetch(url, { mode: 'cors', credentials: 'omit' })
+      .then(function (res) {
+        if (!res.ok) throw new Error('tile status ' + res.status);
+        return res.blob();
+      })
+      .then(function (blob) {
+        var objectUrl = URL.createObjectURL(blob);
+        self.mem[url] = objectUrl;
+        self.write(url, blob);
+        return objectUrl;
+      })
+      .catch(function () {
+        self.stats.fail += 1;
+        return null;
+      });
+  },
+
+  write: function (url, blob) {
+    var self = this;
+    if (!this.enabled || !this.db) return;
+    try {
+      var tx = this.db.transaction(this.store, 'readwrite');
+      tx.objectStore(this.store).put({ blob: blob, at: Date.now() }, url);
+      self.stats.put += 1;
+    } catch (err) { /* 写失败不影响显示 */ }
+  },
+
+  drop: function (url) {
+    if (this.mem[url]) delete this.mem[url];
+    if (!this.enabled || !this.db) return;
+    try {
+      this.db.transaction(this.store, 'readwrite').objectStore(this.store).delete(url);
+    } catch (err) { /* noop */ }
+  },
+
+  /** 清空全部缓存（设置面板里的"清理底图缓存"用） */
+  clear: function () {
+    var self = this;
+    Object.keys(this.mem).forEach(function (url) { URL.revokeObjectURL(self.mem[url]); });
+    this.mem = {};
+    this.stats = { hit: 0, miss: 0, put: 0, fail: 0, memHit: 0 };
+    if (!this.enabled || !this.db) return Promise.resolve(false);
+    return new Promise(function (resolve) {
+      try {
+        var tx = self.db.transaction(self.store, 'readwrite');
+        var req = tx.objectStore(self.store).clear();
+        req.onsuccess = function () { resolve(true); };
+        req.onerror = function () { resolve(false); };
+      } catch (err) { resolve(false); }
+    });
+  },
+
+  summary: function () {
+    return {
+      enabled: this.enabled !== false,
+      backend: this.enabled ? 'indexeddb' : 'memory',
+      entriesInSession: Object.keys(this.mem).length,
+      hit: this.stats.hit,
+      miss: this.stats.miss,
+      put: this.stats.put,
+      fail: this.stats.fail
+    };
+  }
+};
+
+TileCache.open();
+
+/**
+ * 带本地缓存的瓦片图层：优先用缓存里的瓦片，没有再联网并回写缓存。
+ * 与 L.tileLayer 用法完全一致。
+ */
+function createCachedTileLayer(url, options) {
+  var Layer = L.TileLayer.extend({
+    createTile: function (coords, done) {
+      var tile = document.createElement('img');
+      tile.alt = '';
+      tile.setAttribute('role', 'presentation');
+      if (this.options.crossOrigin || this.options.crossOrigin === '') {
+        tile.crossOrigin = true;
+      }
+      var original = this.getTileUrl(coords);
+      var settled = false;
+
+      var finish = function (src) {
+        if (settled) return;
+        settled = true;
+        tile.onload = function () { done(null, tile); };
+        tile.onerror = function () {
+          if (src !== original) {          // 缓存图坏了：删掉，退回原始地址
+            TileCache.drop(original);
+            tile.onerror = null;
+            tile.src = original;
+            return;
+          }
+          done(new Error('tile error'), tile);
+        };
+        tile.src = src;
+      };
+
+      TileCache.get(original).then(function (cached) {
+        if (cached) { finish(cached); return; }
+        TileCache.load(original).then(function (fresh) {
+          finish(fresh || original);
+        });
+      });
+
+      return tile;
+    }
+  });
+  return new Layer(url, options);
+}
+
 /* ===== 20-basemap.js ===== */
 /* ==========================================================================
    20 · 地图源（三级底图策略）
@@ -3518,7 +3703,7 @@ var Basemap = {
    */
   createBackdrop: function (kind) {
     var isAmap = kind === 'amap';
-    var layer = L.tileLayer(isAmap ? BASEMAP_SOURCES.amapTiles : BASEMAP_SOURCES.esriBase, {
+    var layer = createCachedTileLayer(isAmap ? BASEMAP_SOURCES.amapTiles : BASEMAP_SOURCES.esriBase, {
       subdomains: isAmap ? '1234' : 'abc',
       maxZoom: 19,
       maxNativeZoom: isAmap ? 18 : 16,
@@ -3549,7 +3734,7 @@ var Basemap = {
     }
 
     var backdrop = this.createBackdrop('esri');
-    var base = L.tileLayer(BASEMAP_SOURCES.esriBase, {
+    var base = createCachedTileLayer(BASEMAP_SOURCES.esriBase, {
       maxZoom: 19,
       maxNativeZoom: 16,
       crossOrigin: true,
@@ -3557,7 +3742,7 @@ var Basemap = {
       updateWhenZooming: false,
       pane: 'tilePane'
     });
-    var reference = L.tileLayer(BASEMAP_SOURCES.esriReference, {
+    var reference = createCachedTileLayer(BASEMAP_SOURCES.esriReference, {
       maxZoom: 19,
       maxNativeZoom: 16,
       crossOrigin: true,
@@ -3594,7 +3779,7 @@ var Basemap = {
     this.removeRaster();
 
     var backdrop = this.createBackdrop('amap');
-    var layer = L.tileLayer(BASEMAP_SOURCES.amapTiles, {
+    var layer = createCachedTileLayer(BASEMAP_SOURCES.amapTiles, {
       subdomains: '1234',
       maxZoom: 19,
       maxNativeZoom: 18,
@@ -4388,22 +4573,14 @@ var Scene = {
     casing.addTo(group);
     main.addTo(group);
 
-    // 头部标记：随绘制进度移动的小圆点
-    var headHtml = '<div class="route-head" style="--line-color:' + escapeHtml(line.color) + '"><span></span></div>';
-    var head = L.marker(L.latLng(0, 0), {
-      icon: L.divIcon({ className: 'route-head-icon', html: headHtml, iconSize: [0, 0], iconAnchor: [0, 0] }),
-      interactive: false,
-      keyboard: false,
-      opacity: 0
-    });
-    head.addTo(group);
-
+    // 不再画「跟着走的圆点」：线路推进到哪里，就在那里生成站点圆点
     this.routes[line.key] = {
       line: line,
       glow: glow,
       casing: casing,
       main: main,
-      head: head,
+      headPoint: null,      // 当前绘制前沿（只用于镜头跟随，不渲染）
+      active: false,
       full: false
     };
   },
@@ -4530,10 +4707,7 @@ var Scene = {
         dash: !!style.dashArray
       }, ratio);
     }
-    if (headPoint) {
-      route.head.setLatLng(L.latLng(headPoint[0], headPoint[1]));
-      route.head.setOpacity(1);
-    }
+    route.headPoint = headPoint;
 
     // 站点：弧长比例已到达 → 依次点亮（跨线共用站触发 ghost → transfer 变换）
     for (var i = 0; i < line.stations.length; i += 1) {
@@ -4684,28 +4858,21 @@ var Scene = {
     return revealed;
   },
 
+  /** 标记某条线是否正在「绘制中」（只影响内部状态与镜头跟随，不再有可见圆点） */
   setHeadVisible: function (lineIndex, visible) {
     var line = this.plan && this.plan.lines[lineIndex];
     if (!line) return;
     var route = this.routes[line.key];
     if (!route) return;
-    if (!window.gsap) {
-      route.head.setOpacity(visible ? 1 : 0);
-      return;
-    }
-    killTweens(route.head.getElement());
-    if (visible) {
-      route.head.setOpacity(1);
-      gsap.to(route.head.getElement(), { opacity: 1, scale: 1, duration: 0.3, ease: 'power2.out' });
-    } else {
-      gsap.to(route.head.getElement(), {
-        opacity: 0,
-        scale: 0.6,
-        duration: 0.35,
-        ease: 'power2.in',
-        onComplete: function () { route.head.setOpacity(0); }
-      });
-    }
+    route.active = !!visible;
+    if (!visible) route.headPoint = null;
+  },
+
+  /** 当前绘制前沿（没有圆点标记时给镜头用） */
+  headPointOf: function (lineIndex) {
+    var line = this.plan && this.plan.lines[lineIndex];
+    var route = line ? this.routes[line.key] : null;
+    return route ? route.headPoint : null;
   },
 
   /** 线路画完：SVG 一次性画出完整路径，canvas 收工 */
@@ -4800,7 +4967,8 @@ var Scene = {
       });
       Object.keys(this.routes).forEach(function (key) {
         var route = self.routes[key];
-        killTweens(route.head.getElement());
+        route.active = false;
+        route.headPoint = null;
       });
       try { this.map.removeLayer(this.group); } catch (err) { /* noop */ }
       try { this.group.clearLayers(); } catch (err) { /* noop */ }
@@ -5981,12 +6149,11 @@ var Story = {
     var geometry = Scene.geometries[line.key];
     if (geometry && isFiniteNumber(geometry.totalMeters)) this.openedMeters += geometry.totalMeters;
     this.drawing = true;
-    if (typeof RouteCanvas !== 'undefined') RouteCanvas.begin(App.plan.lines[event.lineIndex].key);
+    if (typeof RouteCanvas !== 'undefined') RouteCanvas.begin(line.key);
     Scene.setHeadVisible(event.lineIndex, true);
     var route = Scene.routes[line.key];
     if (route && geometry && geometry.render.length) {
-      route.head.setLatLng(L.latLng(geometry.render[0][0], geometry.render[0][1]));
-      route.head.setOpacity(1);
+      route.headPoint = geometry.render[0];   // 只记录前沿坐标（不再画跟随圆点）
     }
     this.phase = event.lineIndex;
     this.applyHeader(event);
@@ -8030,6 +8197,7 @@ window.__METRO__ = {
   LineSelection: LineSelection,
   CitySearch: CitySearch,
   Metrics: Metrics,
+  TileCache: TileCache,
   ZoomUI: ZoomUI,
   RemoteStore: RemoteStore,
   api: {

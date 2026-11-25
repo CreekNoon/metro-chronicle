@@ -175,7 +175,7 @@ var Basemap = {
    */
   createBackdrop: function (kind) {
     var isAmap = kind === 'amap';
-    var layer = L.tileLayer(isAmap ? BASEMAP_SOURCES.amapTiles : BASEMAP_SOURCES.esriBase, {
+    var layer = createCachedTileLayer(isAmap ? BASEMAP_SOURCES.amapTiles : BASEMAP_SOURCES.esriBase, {
       subdomains: isAmap ? '1234' : 'abc',
       maxZoom: 19,
       maxNativeZoom: isAmap ? 18 : 16,
@@ -206,7 +206,7 @@ var Basemap = {
     }
 
     var backdrop = this.createBackdrop('esri');
-    var base = L.tileLayer(BASEMAP_SOURCES.esriBase, {
+    var base = createCachedTileLayer(BASEMAP_SOURCES.esriBase, {
       maxZoom: 19,
       maxNativeZoom: 16,
       crossOrigin: true,
@@ -214,7 +214,7 @@ var Basemap = {
       updateWhenZooming: false,
       pane: 'tilePane'
     });
-    var reference = L.tileLayer(BASEMAP_SOURCES.esriReference, {
+    var reference = createCachedTileLayer(BASEMAP_SOURCES.esriReference, {
       maxZoom: 19,
       maxNativeZoom: 16,
       crossOrigin: true,
@@ -251,7 +251,7 @@ var Basemap = {
     this.removeRaster();
 
     var backdrop = this.createBackdrop('amap');
-    var layer = L.tileLayer(BASEMAP_SOURCES.amapTiles, {
+    var layer = createCachedTileLayer(BASEMAP_SOURCES.amapTiles, {
       subdomains: '1234',
       maxZoom: 19,
       maxNativeZoom: 18,

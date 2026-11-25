@@ -304,6 +304,7 @@ window.__METRO__ = {
   LineSelection: LineSelection,
   CitySearch: CitySearch,
   Metrics: Metrics,
+  TileCache: TileCache,
   ZoomUI: ZoomUI,
   RemoteStore: RemoteStore,
   api: {

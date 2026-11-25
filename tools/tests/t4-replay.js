@@ -49,8 +49,8 @@
   add('结束态清水塘为换乘', end.stationStates['zz-qingshuitang'] === 'transfer', end.stationStates['zz-qingshuitang']);
 
   /* ---- 复位残留检查 ---- */
-  const headOpacity = plan.lines.map((line) => Number(S.routes[line.key].head.options.opacity));
-  add('头部标记无透明度残留', headOpacity.every(v => v === 0), JSON.stringify(headOpacity));
+  const headActive = plan.lines.map((line) => S.routes[line.key].active === true);
+  add('重播前没有线路处于绘制态', headActive.every(v => v === false), JSON.stringify(headActive));
   const uniqueStations = entries;
   add('站点标记数量=去重站数（无重复图层）',
     A.map.getContainer().querySelectorAll('.st').length === uniqueStations,

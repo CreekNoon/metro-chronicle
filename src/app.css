@@ -82,32 +82,7 @@ body {
 .route-casing { pointer-events: none; }
 .route-main { pointer-events: none; }
 
-/* 头部标记 */
-.route-head-icon {
-  width: 0 !important;
-  height: 0 !important;
-  overflow: visible !important;
-}
-
-.route-head {
-  position: absolute;
-  left: 0;
-  top: 0;
-  width: 0;
-  height: 0;
-}
-
-.route-head span {
-  position: absolute;
-  left: -8px;
-  top: -8px;
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  background: #fff;
-  border: 3px solid var(--line-color, #e60012);
-  box-shadow: 0 2px 10px rgba(18, 22, 27, 0.22);
-}
+/* 线路延伸过程中不再渲染「跟随圆点」：推进到哪个站，就在那里生成站点圆点 */
 
 /* ------------------------------------------------------------------ 遮罩 */
 

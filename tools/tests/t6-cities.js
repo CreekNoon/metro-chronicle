@@ -89,8 +89,8 @@
     A.map.getContainer().querySelectorAll('.route-layer').length + ' vs ' + lineCount * 3);
   add('无重复站点标记', A.map.getContainer().querySelectorAll('.st').length === uniqueStations,
     A.map.getContainer().querySelectorAll('.st').length + ' vs ' + uniqueStations);
-  add('无重复头部标记', A.map.getContainer().querySelectorAll('.route-head').length === lineCount,
-    A.map.getContainer().querySelectorAll('.route-head').length + ' vs ' + lineCount);
+  add('不再渲染跟随圆点（头部标记数为 0）', A.map.getContainer().querySelectorAll('.route-head').length === 0,
+    A.map.getContainer().querySelectorAll('.route-head').length);
 
   return JSON.stringify({ pass: checks.filter(c => c.ok).length, total: checks.length, checks: checks });
 })()

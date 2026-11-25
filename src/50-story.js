@@ -332,12 +332,11 @@ var Story = {
     var geometry = Scene.geometries[line.key];
     if (geometry && isFiniteNumber(geometry.totalMeters)) this.openedMeters += geometry.totalMeters;
     this.drawing = true;
-    if (typeof RouteCanvas !== 'undefined') RouteCanvas.begin(App.plan.lines[event.lineIndex].key);
+    if (typeof RouteCanvas !== 'undefined') RouteCanvas.begin(line.key);
     Scene.setHeadVisible(event.lineIndex, true);
     var route = Scene.routes[line.key];
     if (route && geometry && geometry.render.length) {
-      route.head.setLatLng(L.latLng(geometry.render[0][0], geometry.render[0][1]));
-      route.head.setOpacity(1);
+      route.headPoint = geometry.render[0];   // 只记录前沿坐标（不再画跟随圆点）
     }
     this.phase = event.lineIndex;
     this.applyHeader(event);

@@ -15,6 +15,7 @@ const APP_PARTS = [
   '05-metrics.js',
   '10-cities.js',
   '15-remote.js',
+  '18-tile-cache.js',
   '20-basemap.js',
   '30-geometry.js',
   '40-scene.js',

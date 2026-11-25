@@ -125,22 +125,14 @@ var Scene = {
     casing.addTo(group);
     main.addTo(group);
 
-    // 头部标记：随绘制进度移动的小圆点
-    var headHtml = '<div class="route-head" style="--line-color:' + escapeHtml(line.color) + '"><span></span></div>';
-    var head = L.marker(L.latLng(0, 0), {
-      icon: L.divIcon({ className: 'route-head-icon', html: headHtml, iconSize: [0, 0], iconAnchor: [0, 0] }),
-      interactive: false,
-      keyboard: false,
-      opacity: 0
-    });
-    head.addTo(group);
-
+    // 不再画「跟着走的圆点」：线路推进到哪里，就在那里生成站点圆点
     this.routes[line.key] = {
       line: line,
       glow: glow,
       casing: casing,
       main: main,
-      head: head,
+      headPoint: null,      // 当前绘制前沿（只用于镜头跟随，不渲染）
+      active: false,
       full: false
     };
   },
@@ -267,10 +259,7 @@ var Scene = {
         dash: !!style.dashArray
       }, ratio);
     }
-    if (headPoint) {
-      route.head.setLatLng(L.latLng(headPoint[0], headPoint[1]));
-      route.head.setOpacity(1);
-    }
+    route.headPoint = headPoint;
 
     // 站点：弧长比例已到达 → 依次点亮（跨线共用站触发 ghost → transfer 变换）
     for (var i = 0; i < line.stations.length; i += 1) {
@@ -421,28 +410,21 @@ var Scene = {
     return revealed;
   },
 
+  /** 标记某条线是否正在「绘制中」（只影响内部状态与镜头跟随，不再有可见圆点） */
   setHeadVisible: function (lineIndex, visible) {
     var line = this.plan && this.plan.lines[lineIndex];
     if (!line) return;
     var route = this.routes[line.key];
     if (!route) return;
-    if (!window.gsap) {
-      route.head.setOpacity(visible ? 1 : 0);
-      return;
-    }
-    killTweens(route.head.getElement());
-    if (visible) {
-      route.head.setOpacity(1);
-      gsap.to(route.head.getElement(), { opacity: 1, scale: 1, duration: 0.3, ease: 'power2.out' });
-    } else {
-      gsap.to(route.head.getElement(), {
-        opacity: 0,
-        scale: 0.6,
-        duration: 0.35,
-        ease: 'power2.in',
-        onComplete: function () { route.head.setOpacity(0); }
-      });
-    }
+    route.active = !!visible;
+    if (!visible) route.headPoint = null;
+  },
+
+  /** 当前绘制前沿（没有圆点标记时给镜头用） */
+  headPointOf: function (lineIndex) {
+    var line = this.plan && this.plan.lines[lineIndex];
+    var route = line ? this.routes[line.key] : null;
+    return route ? route.headPoint : null;
   },
 
   /** 线路画完：SVG 一次性画出完整路径，canvas 收工 */
@@ -537,7 +519,8 @@ var Scene = {
       });
       Object.keys(this.routes).forEach(function (key) {
         var route = self.routes[key];
-        killTweens(route.head.getElement());
+        route.active = false;
+        route.headPoint = null;
       });
       try { this.map.removeLayer(this.group); } catch (err) { /* noop */ }
       try { this.group.clearLayers(); } catch (err) { /* noop */ }
