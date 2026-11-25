@@ -61,6 +61,12 @@ var RouteCanvas = {
     return cache;
   },
 
+  /** 让 canvas 始终盖住当前视口（平移时由 Camera.tick 调用） */
+  syncPosition: function () {
+    if (!this.canvas || !this.map) return;
+    L.DomUtil.setPosition(this.canvas, this.map.containerPointToLayerPoint([0, 0]));
+  },
+
   begin: function (key) {
     this.activeKey = key;
     this.clear();
@@ -89,12 +95,19 @@ var RouteCanvas = {
 
     var cache = this.projected(key, geometry);
     var pts = cache.pts;
-    var panePos = map._getMapPanePos();
     var dpr = this.dpr;
+
+    /*
+     * 视口左上角在 layer 坐标系里的位置 = canvas 元素该放的位置；
+     * 绘制时用 -topLeft 做平移，于是 layer 坐标点 p 正好落在 canvas 像素 (p - topLeft)。
+     * （之前这里符号搞反过一次，线路会被画到屏幕外/错位）
+     */
+    var topLeft = map.containerPointToLayerPoint([0, 0]);
+    L.DomUtil.setPosition(this.canvas, topLeft);
 
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
-    ctx.setTransform(dpr, 0, 0, dpr, panePos.x * dpr, panePos.y * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, -topLeft.x * dpr, -topLeft.y * dpr);
 
     var headPt = null;
     if (head) {

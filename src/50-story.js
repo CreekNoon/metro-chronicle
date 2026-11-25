@@ -417,7 +417,7 @@ var Story = {
     if (!points.length) return;
     if (event.type === 'line' && geometry && Basemap.prefetchRoute) {
       // 沿线整条预取：跟拍时镜头沿线路缓慢平移，沿途瓦片必须提前到位
-      Basemap.prefetchRoute(geometry, [zoom, zoom - 1]);
+      Basemap.prefetchRoute(geometry, [zoom]);
       return;
     }
     Basemap.prefetch(L.latLngBounds(points), [zoom - 1, zoom, zoom + 1]);

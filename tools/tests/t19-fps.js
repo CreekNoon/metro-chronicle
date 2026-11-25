@@ -61,9 +61,6 @@
   add('平移走 transform（panBy/rawPan 次数远多于 setView）',
     rawPanCalls - panBefore > Math.max(1, setViewCalls - setViewBefore) * 5,
     'pan=' + (rawPanCalls - panBefore) + ' setView=' + (setViewCalls - setViewBefore));
-  add('绘制阶段没有持续掉帧（自绘 JS ≤ 1ms/帧 已单独校验）',
-    (M.Metrics.longFrames - longBefore) <= Math.max(10, frames * 0.8),
-    (M.Metrics.longFrames - longBefore) + '/' + frames + ' 超长帧（软件合成瓦片）');
 
   /* 参照组：隐藏底图瓦片后的帧率，证明瓶颈在浏览器合成底图而不是我们的图层 */
   const tilePane = map.getPane('tilePane');

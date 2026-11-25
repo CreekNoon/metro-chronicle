@@ -19,7 +19,7 @@ var CAMERA = {
   panoramaHold: 2.0,      // 全景停留（展示整条线路）
   lerpCenter: 0.26,       // 每帧向目标中心插值比例（跟拍更贴手）
   zoomDuration: 0.9,      // Leaflet 缩放动画兜底时长
-  regridAfterPx: 1400,    // 累计平移超过该像素才重算一次瓦片网格（避免频繁卡顿）
+  regridAfterPx: 700,     // 累计平移超过该像素补一次瓦片网格（兼顾瓦片新鲜与帧率）
   flight: 4.8             // 事件之间飞行时长（整体 0.5× 速度）
 };
 
@@ -126,6 +126,7 @@ var Camera = {
      * 不需要重投影、不重建 SVG、不触发瓦片重算 —— 这是高帧率的来源。
      */
     map._rawPanBy(L.point(rx, ry));
+    if (typeof RouteCanvas !== 'undefined' && RouteCanvas.syncPosition) RouteCanvas.syncPosition();
 
     /*
      * 不逐帧（也不频繁）触发 move/moveend：每次 moveend 都会让瓦片层重算网格，

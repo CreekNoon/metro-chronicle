@@ -3796,6 +3796,35 @@ var Basemap = {
 
   /* ------------------------------------------------------- 瓦片预取 */
 
+  /* -------------------------------------------------- 分批预取（不抢首屏带宽） */
+
+  _prefetchQueue: [],
+  _prefetchTimer: 0,
+
+  /**
+   * 把瓦片请求排进队列：每批 6 个、间隔 70ms。
+   * 直接批量 new Image() 会瞬间占满连接，拖慢当前屏幕真正需要的瓦片。
+   */
+  enqueueTiles: function (urls, startDelay) {
+    if (!urls || !urls.length) return;
+    var self = this;
+    this._prefetchQueue = this._prefetchQueue.concat(urls);
+    if (this._prefetchTimer) return;
+    var kick = function () {
+      self._prefetchTimer = 0;
+      var batch = self._prefetchQueue.splice(0, 6);
+      batch.forEach(function (url) {
+        var img = new Image();
+        img.decoding = 'async';
+        img.src = url;                 // 只进浏览器缓存，不参与布局
+      });
+      if (self._prefetchQueue.length) {
+        self._prefetchTimer = window.setTimeout(kick, 70);
+      }
+    };
+    this._prefetchTimer = window.setTimeout(kick, startDelay === undefined ? 500 : startDelay);
+  },
+
   /**
    * 预热瓦片缓存：按给定经纬度范围与缩放层级，把对应瓦片先请求一遍。
    * 镜头切换前调用，正式进入视野时直接命中浏览器缓存，不再"边转边加载"。
@@ -3823,12 +3852,8 @@ var Basemap = {
       }
     });
 
-    urls.slice(0, 96).forEach(function (url) {
-      var img = new Image();
-      img.decoding = 'async';
-      img.src = url;      // 进 HTTP 缓存；不保留引用
-    });
-    return Math.min(urls.length, 96);
+    this.enqueueTiles(urls.slice(0, 64), 600);
+    return Math.min(urls.length, 64);
   },
 
   /**
@@ -3876,12 +3901,8 @@ var Basemap = {
       void scale;
     });
 
-    var limit = 240;
-    urls.slice(0, limit).forEach(function (url) {
-      var img = new Image();
-      img.decoding = 'async';
-      img.src = url;
-    });
+    var limit = 120;
+    this.enqueueTiles(urls.slice(0, limit), 900);
     return Math.min(urls.length, limit);
   },
 
@@ -5220,6 +5241,12 @@ var RouteCanvas = {
     return cache;
   },
 
+  /** 让 canvas 始终盖住当前视口（平移时由 Camera.tick 调用） */
+  syncPosition: function () {
+    if (!this.canvas || !this.map) return;
+    L.DomUtil.setPosition(this.canvas, this.map.containerPointToLayerPoint([0, 0]));
+  },
+
   begin: function (key) {
     this.activeKey = key;
     this.clear();
@@ -5248,12 +5275,19 @@ var RouteCanvas = {
 
     var cache = this.projected(key, geometry);
     var pts = cache.pts;
-    var panePos = map._getMapPanePos();
     var dpr = this.dpr;
+
+    /*
+     * 视口左上角在 layer 坐标系里的位置 = canvas 元素该放的位置；
+     * 绘制时用 -topLeft 做平移，于是 layer 坐标点 p 正好落在 canvas 像素 (p - topLeft)。
+     * （之前这里符号搞反过一次，线路会被画到屏幕外/错位）
+     */
+    var topLeft = map.containerPointToLayerPoint([0, 0]);
+    L.DomUtil.setPosition(this.canvas, topLeft);
 
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
-    ctx.setTransform(dpr, 0, 0, dpr, panePos.x * dpr, panePos.y * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, -topLeft.x * dpr, -topLeft.y * dpr);
 
     var headPt = null;
     if (head) {
@@ -5324,7 +5358,7 @@ var CAMERA = {
   panoramaHold: 2.0,      // 全景停留（展示整条线路）
   lerpCenter: 0.26,       // 每帧向目标中心插值比例（跟拍更贴手）
   zoomDuration: 0.9,      // Leaflet 缩放动画兜底时长
-  regridAfterPx: 1400,    // 累计平移超过该像素才重算一次瓦片网格（避免频繁卡顿）
+  regridAfterPx: 700,     // 累计平移超过该像素补一次瓦片网格（兼顾瓦片新鲜与帧率）
   flight: 4.8             // 事件之间飞行时长（整体 0.5× 速度）
 };
 
@@ -5431,6 +5465,7 @@ var Camera = {
      * 不需要重投影、不重建 SVG、不触发瓦片重算 —— 这是高帧率的来源。
      */
     map._rawPanBy(L.point(rx, ry));
+    if (typeof RouteCanvas !== 'undefined' && RouteCanvas.syncPosition) RouteCanvas.syncPosition();
 
     /*
      * 不逐帧（也不频繁）触发 move/moveend：每次 moveend 都会让瓦片层重算网格，
@@ -6031,7 +6066,7 @@ var Story = {
     if (!points.length) return;
     if (event.type === 'line' && geometry && Basemap.prefetchRoute) {
       // 沿线整条预取：跟拍时镜头沿线路缓慢平移，沿途瓦片必须提前到位
-      Basemap.prefetchRoute(geometry, [zoom, zoom - 1]);
+      Basemap.prefetchRoute(geometry, [zoom]);
       return;
     }
     Basemap.prefetch(L.latLngBounds(points), [zoom - 1, zoom, zoom + 1]);

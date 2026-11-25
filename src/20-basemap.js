@@ -453,6 +453,35 @@ var Basemap = {
 
   /* ------------------------------------------------------- 瓦片预取 */
 
+  /* -------------------------------------------------- 分批预取（不抢首屏带宽） */
+
+  _prefetchQueue: [],
+  _prefetchTimer: 0,
+
+  /**
+   * 把瓦片请求排进队列：每批 6 个、间隔 70ms。
+   * 直接批量 new Image() 会瞬间占满连接，拖慢当前屏幕真正需要的瓦片。
+   */
+  enqueueTiles: function (urls, startDelay) {
+    if (!urls || !urls.length) return;
+    var self = this;
+    this._prefetchQueue = this._prefetchQueue.concat(urls);
+    if (this._prefetchTimer) return;
+    var kick = function () {
+      self._prefetchTimer = 0;
+      var batch = self._prefetchQueue.splice(0, 6);
+      batch.forEach(function (url) {
+        var img = new Image();
+        img.decoding = 'async';
+        img.src = url;                 // 只进浏览器缓存，不参与布局
+      });
+      if (self._prefetchQueue.length) {
+        self._prefetchTimer = window.setTimeout(kick, 70);
+      }
+    };
+    this._prefetchTimer = window.setTimeout(kick, startDelay === undefined ? 500 : startDelay);
+  },
+
   /**
    * 预热瓦片缓存：按给定经纬度范围与缩放层级，把对应瓦片先请求一遍。
    * 镜头切换前调用，正式进入视野时直接命中浏览器缓存，不再"边转边加载"。
@@ -480,12 +509,8 @@ var Basemap = {
       }
     });
 
-    urls.slice(0, 96).forEach(function (url) {
-      var img = new Image();
-      img.decoding = 'async';
-      img.src = url;      // 进 HTTP 缓存；不保留引用
-    });
-    return Math.min(urls.length, 96);
+    this.enqueueTiles(urls.slice(0, 64), 600);
+    return Math.min(urls.length, 64);
   },
 
   /**
@@ -533,12 +558,8 @@ var Basemap = {
       void scale;
     });
 
-    var limit = 240;
-    urls.slice(0, limit).forEach(function (url) {
-      var img = new Image();
-      img.decoding = 'async';
-      img.src = url;
-    });
+    var limit = 120;
+    this.enqueueTiles(urls.slice(0, limit), 900);
     return Math.min(urls.length, limit);
   },
 
