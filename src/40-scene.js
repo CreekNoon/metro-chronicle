@@ -260,6 +260,7 @@ var Scene = {
       }, ratio);
     }
     route.headPoint = headPoint;
+    route.progress = Math.max(0, Math.min(1, ratio));
 
     // 站点：弧长比例已到达 → 依次点亮（跨线共用站触发 ghost → transfer 变换）
     for (var i = 0; i < line.stations.length; i += 1) {

@@ -25,6 +25,7 @@ const APP_PARTS = [
   '60-edit.js',
   '70-city.js',
   '72-search.js',
+  '75-ml-preview.js',
   '80-boot.js'
 ];
 
@@ -52,9 +53,11 @@ const [shell, leafletCssRaw, appCss] = await Promise.all([
   readFile(path.join(srcDir, 'app.css'), 'utf8')
 ]);
 
-const [leafletJs, gsapJs] = await Promise.all([
+const [leafletJs, gsapJs, maplibreJs, maplibreCss] = await Promise.all([
   readFile(path.join(vendorDir, 'leaflet.js'), 'utf8'),
-  readFile(path.join(vendorDir, 'gsap.min.js'), 'utf8')
+  readFile(path.join(vendorDir, 'gsap.min.js'), 'utf8'),
+  readFile(path.join(vendorDir, 'maplibre-gl.js'), 'utf8'),
+  readFile(path.join(vendorDir, 'maplibre-gl.css'), 'utf8')
 ]);
 
 const appJsParts = [];
@@ -88,6 +91,8 @@ const replacements = [
   ['/*__APP_CSS__*/', guardInline(appCss, 'app.css')],
   ['/*__LEAFLET_JS__*/', guardInline(leafletJs, 'leaflet.js')],
   ['/*__GSAP_JS__*/', guardInline(gsapJs, 'gsap.min.js')],
+  ['/*__MAPLIBRE_CSS__*/', guardInline(maplibreCss, 'maplibre-gl.css')],
+  ['/*__MAPLIBRE_JS__*/', guardInline(maplibreJs, 'maplibre-gl.js')],
   ['/*__APP_JS__*/', guardInline(appJs, 'app.js')]
 ];
 

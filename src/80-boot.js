@@ -267,11 +267,31 @@ function boot() {
     return Basemap.init(App.map);
   }).then(function () {
     App.map.invalidateSize();
+
+    // ?engine=ml：改用 MapLibre（WebGL）渲染同一份线网数据做对照
+    if (engineFromQuery() === 'ml' && typeof MlPreview !== 'undefined' && typeof maplibregl !== 'undefined') {
+      if (MlPreview.start()) {
+        App.engine = 'maplibre';
+        App.ready = true;
+        return;
+      }
+    }
+
     startExperience();
     App.ready = true;
   }).catch(function (err) {
     showFatal('初始化失败：' + (err && err.message ? err.message : err));
   });
+}
+
+/** 渲染引擎选择：默认 leaflet；?engine=ml 用 MapLibre（WebGL） */
+function engineFromQuery() {
+  try {
+    var value = new URLSearchParams(window.location.search).get('engine');
+    return value ? String(value).toLowerCase() : 'leaflet';
+  } catch (err) {
+    return 'leaflet';
+  }
 }
 
 /* ---------------------------------------------------------------- 语义化入口 */
@@ -305,6 +325,9 @@ window.__METRO__ = {
   CitySearch: CitySearch,
   Metrics: Metrics,
   TileCache: TileCache,
+  MlPreview: MlPreview,
+  engine: App.engine || 'leaflet',
+  engineNow: function () { return App.engine || 'leaflet'; },
   ZoomUI: ZoomUI,
   RemoteStore: RemoteStore,
   api: {

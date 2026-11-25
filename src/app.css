@@ -46,12 +46,17 @@ body {
 
 /* ------------------------------------------------------------------ 地图 */
 
-#map {
+#map,
+#mlMap {
   position: absolute;
   inset: 0;
   background: var(--bg);
   z-index: 0;
 }
+
+/* MapLibre 容器默认隐藏，?engine=ml 时由脚本显示 */
+#mlMap.map-ml { display: none; }
+#mlMap .maplibregl-canvas { outline: none; }
 
 #map.is-locked { cursor: default; }
 

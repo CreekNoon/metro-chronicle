@@ -32,7 +32,7 @@ for (const raw of argv) {
   else if (key === 'quiet') opts.quiet = value !== '0';
 }
 
-const toFileUrl = (p) => (/^https?:\/\//i.test(p) ? p : 'file:///' + path.resolve(repo, p).replace(/\\/g, '/').replace(/^\/+/, ''));
+const toFileUrl = (p) => (/^(https?|file):\/\//i.test(p) ? p : 'file:///' + path.resolve(repo, p).replace(/\\/g, '/').replace(/^\/+/, ''));
 const probeArgs = [
   path.join(repo, 'tools', 'probe.mjs'),
   '--url=' + toFileUrl(opts.page),
