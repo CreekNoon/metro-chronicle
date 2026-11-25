@@ -47,12 +47,55 @@ body {
 /* ------------------------------------------------------------------ 地图 */
 
 #map,
-#mlMap {
+#mlMap,
+#scMap {
   position: absolute;
   inset: 0;
   background: var(--bg);
   z-index: 0;
 }
+
+/* 线网示意图（schematic）容器：纯 SVG + DOM，缩放靠 transform */
+#scMap.map-sc { display: none; overflow: hidden; }
+#scMap.is-on { display: block; }
+
+.sc-stage {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+  will-change: transform;
+}
+
+.sc-svg {
+  position: absolute;
+  left: 0;
+  top: 0;
+  overflow: visible;
+}
+
+.sc-nodes {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  overflow: visible;
+}
+
+/* 示意图里的站点节点：复用 .st 的圆点/圆环/标签样式，位置由 transform 决定 */
+.sc-nodes .st {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  overflow: visible;
+  transform-origin: 0 0;
+  transition: opacity 240ms var(--ease-out);
+}
+
+.sc-line path { pointer-events: none; }
 
 /* MapLibre 容器默认隐藏，?engine=ml 时由脚本显示 */
 #mlMap.map-ml { display: none; }

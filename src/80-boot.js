@@ -312,6 +312,14 @@ function boot() {
     return;
   }
 
+  // 任何一次场景重建（编辑保存 / 切换城市 / 恢复默认）之后，示意图自动重新派生
+  var originalBuild = Scene.build.bind(Scene);
+  Scene.build = function (targetPlan) {
+    var result = originalBuild(targetPlan);
+    if (typeof Schematic !== 'undefined' && Schematic.root) Schematic.rebuild();
+    return result;
+  };
+
   // 底图来源变化时只更新文案（重建场景由具体调用方负责）
   Basemap.onChange = function () {
     CityUI.updateBasemapIndicator();
@@ -327,6 +335,15 @@ function boot() {
     return Basemap.init(App.map);
   }).then(function () {
     App.map.invalidateSize();
+
+    // ?engine=schematic：用示意图引擎（自动从地理数据派生）
+    if (engineFromQuery() === 'schematic' && typeof Schematic !== 'undefined') {
+      if (Schematic.start()) {
+        App.engine = 'schematic';
+        App.ready = true;
+        return;
+      }
+    }
 
     // ?engine=ml：改用 MapLibre（WebGL）渲染同一份线网数据做对照
     if (engineFromQuery() === 'ml' && typeof MlPreview !== 'undefined' && typeof maplibregl !== 'undefined') {
@@ -351,6 +368,7 @@ function engineFromQuery() {
     var name = value ? String(value).toLowerCase() : 'leaflet';
     // 兼容 ?engine=ml / ?engine=maplibre
     if (name === 'ml' || name === 'maplibre' || name === 'gl') return 'ml';
+    if (name === 'schematic' || name === 'rmp' || name === 'sc') return 'schematic';
     return name;
   } catch (err) {
     return 'leaflet';
@@ -390,6 +408,8 @@ window.__METRO__ = {
   TileCache: TileCache,
   MlPreview: MlPreview,
   VideoExport: VideoExport,
+  Schematic: Schematic,
+  SCHEMATIC: SCHEMATIC,
   engine: App.engine || 'leaflet',
   engineNow: function () { return App.engine || 'leaflet'; },
   ZoomUI: ZoomUI,
