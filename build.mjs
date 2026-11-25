@@ -26,6 +26,7 @@ const APP_PARTS = [
   '70-city.js',
   '72-search.js',
   '75-ml-preview.js',
+  '78-video-export.js',
   '80-boot.js'
 ];
 

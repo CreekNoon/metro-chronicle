@@ -100,6 +100,16 @@ function bindHud() {
   var settingsBtn = $('#settingsBtn');
   if (settingsBtn) settingsBtn.addEventListener('click', function () { CityUI.openSettings(); });
 
+  // 导出视频（页内直出 MP4；不支持 MediaRecorder 的环境自动隐藏按钮）
+  var videoBtn = $('#videoBtn');
+  if (videoBtn) {
+    if (typeof VideoExport === 'undefined' || !VideoExport.available()) {
+      videoBtn.style.display = 'none';
+    } else {
+      videoBtn.addEventListener('click', function () { exportVideo(videoBtn); });
+    }
+  }
+
   // 编辑工具条：事件委托，重建 DOM 不会重复绑定
   var bar = $('#editBar');
   if (bar) bar.addEventListener('click', onEditBarClick);
@@ -234,6 +244,56 @@ function startExperience() {
   Edit.enter();
 }
 
+/** 导出视频：录一段当前城市的开通纪事（页内直出 MP4，无需 FFmpeg） */
+function exportVideo(button) {
+  var status = $('#videoStatus');
+  var showStatus = function (text) {
+    if (!status) return;
+    status.textContent = text;
+    status.classList.add('is-on');
+  };
+  var hideStatus = function () {
+    if (!status) return;
+    status.classList.remove('is-on');
+  };
+
+  if (button) button.classList.add('is-busy');
+  showStatus('准备录制…');
+  VideoExport.onProgress = function (seconds) {
+    showStatus('正在录制… ' + seconds.toFixed(0) + 's（整段约 2 分钟，随时可关闭页面中止）');
+  };
+
+  var maxSeconds = 0;
+  try {
+    var param = Number(new URLSearchParams(window.location.search).get('videoSeconds'));
+    if (isFinite(param) && param > 0) maxSeconds = param;
+  } catch (err) { /* noop */ }
+  VideoExport.start({ width: 1280, fps: 30, maxSeconds: maxSeconds })
+    .then(function (result) {
+      hideStatus();
+      var url = URL.createObjectURL(result.blob);
+      var suffix = result.mimeType.indexOf('mp4') >= 0 ? 'mp4' : 'webm';
+      var link = document.createElement('a');
+      link.href = url;
+      link.download = (App.plan && App.plan.cityName ? App.plan.cityName : '城市') + '地铁开通纪事.' + suffix;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.setTimeout(function () { URL.revokeObjectURL(url); }, 60000);
+      if (typeof toast === 'function') {
+        toast('视频已生成：' + (result.blob.size / 1024 / 1024).toFixed(1) + 'MB · 约 ' + result.seconds.toFixed(0) + ' 秒');
+      }
+    })
+    .catch(function (err) {
+      hideStatus();
+      if (typeof toast === 'function') toast('导出失败：' + (err && err.message ? err.message : err));
+    })
+    .then(function () {
+      if (button) button.classList.remove('is-busy');
+      VideoExport.onProgress = null;
+    });
+}
+
 function boot() {
   if (!window.L || !window.gsap) {
     showFatal('内联依赖未就绪：请确认文件完整（Leaflet 1.9.4 / GSAP 3.12.5 已内联）。');
@@ -329,6 +389,7 @@ window.__METRO__ = {
   Metrics: Metrics,
   TileCache: TileCache,
   MlPreview: MlPreview,
+  VideoExport: VideoExport,
   engine: App.engine || 'leaflet',
   engineNow: function () { return App.engine || 'leaflet'; },
   ZoomUI: ZoomUI,

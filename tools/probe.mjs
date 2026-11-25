@@ -82,7 +82,7 @@ function parseBool(value, fallback = false) {
  * A bare `--flag` (no `=`) is treated as `--flag=1`.
  */
 function parseArgs(argv) {
-  const out = { eval: [], wait: 0, offline: false, mobile: false, url: '', screenshot: '', viewport: '', locale: '', chrome: '', profile: '', fileAccess: true, extraFlags: [] };
+  const out = { eval: [], wait: 0, offline: false, mobile: false, url: '', screenshot: '', downloads: '', viewport: '', locale: '', chrome: '', profile: '', fileAccess: true, extraFlags: [] };
   for (const raw of argv) {
     if (typeof raw !== 'string' || !raw.startsWith('--')) continue;
     const eq = raw.indexOf('=');
@@ -113,6 +113,10 @@ function parseArgs(argv) {
       }
       case 'screenshot':
         out.screenshot = value.trim();
+        break;
+      /* 允许下载到指定目录（导出 MP4 等可交付文件时用） */
+      case 'downloads':
+        out.downloads = value.trim();
         break;
       case 'offline':
         out.offline = parseBool(value);
@@ -845,6 +849,18 @@ async function main() {
         log('locale override:', args.locale);
       } catch (e) {
         warn(`Emulation.setLocaleOverride(${args.locale}) failed: ${e.message}`);
+      }
+    }
+
+    /* ------------------------------------------------ 5.5 下载目录 */
+    if (args.downloads) {
+      try {
+        const dir = path.isAbsolute(args.downloads) ? args.downloads : path.resolve(process.cwd(), args.downloads);
+        fs.mkdirSync(dir, { recursive: true });
+        await send('Page.setDownloadBehavior', { behavior: 'allow', downloadPath: dir });
+        log('downloads enabled:', dir);
+      } catch (e) {
+        warn(`Page.setDownloadBehavior failed: ${e.message}`);
       }
     }
 

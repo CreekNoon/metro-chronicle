@@ -23,6 +23,7 @@ for (const raw of argv) {
   const value = eq === -1 ? '1' : raw.slice(eq + 1);
   if (key === 'wait') opts.wait = Number(value) || 0;
   else if (key === 'page') opts.page = value;
+  else if (key === 'downloads') opts.downloads = value;
   else if (key === 'eval') opts.evals.push(value);
   else if (key === 'shot') opts.shot = value;
   else if (key === 'profile') opts.profile = value;
@@ -43,6 +44,7 @@ if (opts.mobile) probeArgs.push('--mobile=1');
 if (opts.profile) probeArgs.push('--profile=' + path.resolve(repo, opts.profile));
 if (opts.fileAccess !== null) probeArgs.push('--file-access=' + (opts.fileAccess ? '1' : '0'));
 if (opts.shot) probeArgs.push('--screenshot=' + path.resolve(repo, opts.shot));
+if (opts.downloads) probeArgs.push('--downloads=' + path.resolve(repo, opts.downloads));
 for (const item of opts.evals) {
   const isPath = /\.js$/i.test(item) && fs.existsSync(path.resolve(repo, item));
   probeArgs.push('--eval=' + (isPath ? toFileUrl(item) : item));
