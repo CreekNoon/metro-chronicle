@@ -714,6 +714,7 @@ var Schematic = {
     var line = this.lines[lineKey];
     if (!line) return;
     var p = clamp(ratio, 0, 1);
+    line.progress = p;      // 供逐帧渲染（视频导出）读取
     [line.main, line.casing, line.glow].forEach(function (path) {
       var length = Number(path.dataset.length) || 0;
       if (!length) return;
@@ -901,6 +902,35 @@ var Schematic = {
     tl.call(function () {
       self.centerOn(self.layout.width / 2, self.layout.height / 2, self.panoramaScale);
     }, null, cursor);
+  },
+
+  /** 复位所有站点与线路进度（seek 倒退或重新导出时用） */
+  resetStates: function () {
+    var self = this;
+    if (!this.layout) return;
+    this.layout.order.forEach(function (key) { self.setStationState(key, 'hidden'); });
+    this.layout.lines.forEach(function (entry) { self.setLineProgress(entry.line.key, 0); });
+    this.lastSeek = 0;
+    this.updateStats(false);
+  },
+
+  /**
+   * 精确 seek 到某个时间点（逐帧渲染用）：
+   * 时间轴被暂停后只做"更新到该时刻"，倒退时先复位，保证同一 t 一定得到同一画面。
+   */
+  seek: function (t) {
+    if (!this.timeline) return false;
+    var time = Math.max(0, t);
+    if (typeof this.lastSeek === 'number' && time < this.lastSeek - 1e-6) {
+      this.resetStates();
+      this.timeline.pause(0);
+    }
+    this.timeline.time(time, false);
+    this.scale = this.targetScale;
+    this.offset.x = this.targetOffset.x;
+    this.offset.y = this.targetOffset.y;
+    this.lastSeek = time;
+    return true;
   },
 
   /** 跳过动画：直接到终态 */

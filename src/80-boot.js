@@ -287,23 +287,32 @@ function exportVideo(button) {
 
   if (button) button.classList.add('is-busy');
   showStatus('准备录制…');
+  var useSchematic = typeof Schematic !== 'undefined' && !!Schematic.root && typeof SchematicVideo !== 'undefined';
   VideoExport.onProgress = function (seconds) {
     showStatus('正在录制… ' + seconds.toFixed(0) + 's（整段约 2 分钟，随时可关闭页面中止）');
   };
+  var schematicProgress = function (ratio, index) {
+    showStatus('正在逐帧渲染示意图… ' + Math.round(ratio * 100) + '%（第 ' + index + ' 帧）');
+  };
+  if (useSchematic) showStatus('正在逐帧渲染示意图…');
 
   var maxSeconds = 0;
   try {
     var param = Number(new URLSearchParams(window.location.search).get('videoSeconds'));
     if (isFinite(param) && param > 0) maxSeconds = param;
   } catch (err) { /* noop */ }
-  VideoExport.start({ width: 1280, fps: 30, maxSeconds: maxSeconds })
+  // 示意图视图下用「逐帧确定性渲染」，地理视图仍用实时录制
+  var runner = useSchematic
+    ? SchematicVideo.export({ width: 1920, height: 1080, fps: 30, maxSeconds: maxSeconds, onProgress: schematicProgress })
+    : VideoExport.start({ width: 1280, fps: 30, maxSeconds: maxSeconds })
     .then(function (result) {
       hideStatus();
       var url = URL.createObjectURL(result.blob);
       var suffix = result.mimeType.indexOf('mp4') >= 0 ? 'mp4' : 'webm';
+      var resolution = result.width ? result.width + 'x' + result.height : '';
       var link = document.createElement('a');
       link.href = url;
-      link.download = (App.plan && App.plan.cityName ? App.plan.cityName : '城市') + '地铁开通纪事.' + suffix;
+      link.download = (App.plan && App.plan.cityName ? App.plan.cityName : '城市') + '地铁开通纪事' + (resolution ? '_' + resolution : '') + '.' + suffix;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -439,6 +448,7 @@ window.__METRO__ = {
   VideoExport: VideoExport,
   Schematic: Schematic,
   SCHEMATIC: SCHEMATIC,
+  SchematicVideo: SchematicVideo,
   engine: App.engine || 'leaflet',
   engineNow: function () { return App.engine || 'leaflet'; },
   ZoomUI: ZoomUI,

@@ -28,6 +28,7 @@ const APP_PARTS = [
   '75-ml-preview.js',
   '76-schematic.js',
   '78-video-export.js',
+  '79-schematic-video.js',
   '80-boot.js'
 ];
 
