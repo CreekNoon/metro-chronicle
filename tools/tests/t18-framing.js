@@ -9,84 +9,82 @@
   if (!St.finished) St.skip();
   await sleep(600);
 
-  /* 每条线路：取景层是否「装得下整条线」+ 运行途中缩放是否恒定 */
-  const results = [];
+  const panorama = C.panoramaZoom;
+  const focus = C.focusZoom;
 
-  for (let i = 0; i < A.plan.lines.length; i += 1) {
-    const line = A.plan.lines[i];
-    const geometry = S.geometries[line.key];
-    const zoom = C.lineZoom(i);
-    const level = Math.floor(zoom + 0.03);
-    // 用该层级下 Leaflet 的投影算出整线像素包围盒，确认装得下
-    const bounds = L.latLngBounds(geometry.render);
-    const nw = map.project(bounds.getNorthWest(), level);
-    const se = map.project(bounds.getSouthEast(), level);
-    const size = map.getSize();
-    results.push({
-      key: line.key,
-      zoom: Number(zoom.toFixed(2)),
-      level: level,
-      pxW: Math.round(Math.abs(se.x - nw.x)),
-      pxH: Math.round(Math.abs(se.y - nw.y)),
-      sizeW: size.x,
-      sizeH: size.y
-    });
-  }
+  /* ---- A 比例约定：全景 / 特写 ---- */
+  add('存在统一的全景比例', Number.isFinite(panorama) && panorama > 4, panorama.toFixed(2));
+  add('特写比例 A 高于全景比例', focus > panorama, focus.toFixed(2) + ' > ' + panorama.toFixed(2));
+  add('所有线路共用同一特写比例 A',
+    A.plan.lines.every((_, i) => Math.abs(C.lineZoom(i) - focus) < 1e-9),
+    A.plan.lines.map((_, i) => C.lineZoom(i).toFixed(2)).join('/'));
 
-  add('每条线路的取景层级都能装下整线（宽）',
-    results.every(r => r.pxW <= r.sizeW * 0.94),
-    results.map(r => r.key + ':' + r.pxW + '/' + r.sizeW).join(' '));
-  add('每条线路的取景层级都能装下整线（高）',
-    results.every(r => r.pxH <= r.sizeH * 0.94),
-    results.map(r => r.key + ':' + r.pxH + '/' + r.sizeH).join(' '));
-  add('取景缩放向下取整（不会因四舍五入裁掉两端）',
-    results.every(r => r.level === Math.floor(r.zoom + 0.03)),
-    results.map(r => r.zoom + '→' + r.level).join(' '));
+  /* ---- B 全景比例必须装得下整张线网 ---- */
+  const allPoints = Object.keys(S.geometries).reduce((acc, key) => acc.concat(S.geometries[key].render), []);
+  const bounds = L.latLngBounds(allPoints);
+  const level = Math.floor(panorama + 0.03);
+  const nw = map.project(bounds.getNorthWest(), level);
+  const se = map.project(bounds.getSouthEast(), level);
+  const size = map.getSize();
+  add('全景层级能装下整张线网（宽）', Math.abs(se.x - nw.x) <= size.x * 0.98, Math.round(Math.abs(se.x - nw.x)) + '/' + size.x);
+  add('全景层级能装下整张线网（高）', Math.abs(se.y - nw.y) <= size.y * 0.98, Math.round(Math.abs(se.y - nw.y)) + '/' + size.y);
 
-  /* 实跑一条线：运行途中 zoom 必须恒定，且起点/头部都在画面内 */
+  /* ---- C 实跑：每条线都在 A 上绘制，画完回到全景 ---- */
   St.play();
-  const samples = [];
+  const drawZooms = {};
+  const panoramaReturns = [];
+  let lastWasDrawing = false;
+  let headsInside = 0;
+  let headSamples = 0;
   const t0 = performance.now();
-  while (performance.now() - t0 < 70000) {
+  while (performance.now() - t0 < 90000) {
     if (St.finished) break;
-    await sleep(90);
-    if (!St.drawing || C.flying || map._animatingZoom) continue;
-    let visible = null;
-    let count = 0;
-    Object.keys(S.routes).forEach((key) => {
-      const el = S.routes[key].head.getElement();
-      const op = el ? Number(getComputedStyle(el).opacity) : 0;
-      if (op > 0.25) count += 1;
-      if (op > 0.9) visible = { key: key, el: el };
-    });
-    if (count !== 1 || !visible) continue;
-    const size = map.getSize();
-    const head = S.routes[visible.key].head.getLatLng();
-    const headPt = map.latLngToContainerPoint(head);
-    const start = S.geometries[visible.key].render[0];
-    const startPt = map.latLngToContainerPoint(L.latLng(start[0], start[1]));
-    const inside = (pt) => pt.x >= 0 && pt.y >= 0 && pt.x <= size.x && pt.y <= size.y;
-    samples.push({
-      key: visible.key,
-      zoom: map.getZoom(),
-      inside: inside(headPt) && inside(startPt)
-    });
+    await sleep(100);
+    const zoom = map.getZoom();
+    if (St.drawing) {
+      let key = null;
+      let count = 0;
+      Object.keys(S.routes).forEach((k) => {
+        const el = S.routes[k].head.getElement();
+        const op = el ? Number(getComputedStyle(el).opacity) : 0;
+        if (op > 0.25) count += 1;
+        if (op > 0.9) key = k;
+      });
+      if (count === 1 && key && !map._animatingZoom) {
+        drawZooms[key] = drawZooms[key] || [zoom, zoom];
+        drawZooms[key][0] = Math.min(drawZooms[key][0], zoom);
+        drawZooms[key][1] = Math.max(drawZooms[key][1], zoom);
+        const pt = map.latLngToContainerPoint(S.routes[key].head.getLatLng());
+        headSamples += 1;
+        if (pt.x >= 0 && pt.y >= 0 && pt.x <= size.x && pt.y <= size.y) headsInside += 1;
+      }
+      lastWasDrawing = true;
+    } else if (lastWasDrawing && !C.flying) {
+      lastWasDrawing = false;
+      panoramaReturns.push(Number(zoom.toFixed(2)));
+    }
   }
   St.skip();
-  await sleep(400);
+  await sleep(500);
 
-  add('采集到足够的跟拍样本', samples.length >= 100, samples.length + ' 帧');
-  add('跟拍期间起点与头部始终在画面内', samples.every(s => s.inside),
-    samples.filter(s => !s.inside).length + ' 帧越界');
-  const byLine = {};
-  samples.forEach((s) => {
-    if (!byLine[s.key]) byLine[s.key] = [s.zoom, s.zoom];
-    byLine[s.key][0] = Math.min(byLine[s.key][0], s.zoom);
-    byLine[s.key][1] = Math.max(byLine[s.key][1], s.zoom);
-  });
-  add('每条线路运行途中缩放恒定',
-    Object.keys(byLine).every((key) => byLine[key][1] - byLine[key][0] < 0.01),
-    Object.keys(byLine).map((key) => key + '=' + byLine[key][0]).join(' '));
+  const keys = Object.keys(drawZooms);
+  add('每条线路都在特写比例上绘制', keys.length >= 3 && keys.every((k) => Math.abs(drawZooms[k][0] - drawZooms[k][1]) < 0.01),
+    keys.map((k) => k + '=' + drawZooms[k][0]).join(' '));
+  add('各线路使用的比例完全相同', keys.every((k) => Math.abs(drawZooms[k][0] - drawZooms[keys[0]][0]) < 0.01),
+    keys.map((k) => drawZooms[k][0]).join('/'));
+  add('绘制期间头部始终在画面内', headSamples > 0 && headsInside === headSamples,
+    headsInside + '/' + headSamples);
+  // 每一条线都配置了「回到全景」的目标，且该目标恰好等于全景比例
+  add('每条线都有回到全景的目标且等于全景比例',
+    A.plan.lines.every((_, i) => {
+      const target = C.linePanoramaTarget(i);
+      return !!target && Math.abs(target.zoom - C.panoramaZoom) < 1e-9;
+    }),
+    A.plan.lines.map((_, i) => C.linePanoramaTarget(i).zoom.toFixed(2)).join('/'));
+  add('实跑中确实出现过「从特写回到全景」的缩放变化',
+    panoramaReturns.some((z) => Math.abs(z - Math.round(panorama)) <= 1.01) &&
+    panoramaReturns.some((z) => Math.abs(z - (level + 1)) <= 1.01 || Math.abs(z - Math.ceil(focus)) <= 1.01),
+    panoramaReturns.join('/'));
 
-  return JSON.stringify({ pass: checks.filter(c => c.ok).length, total: checks.length, checks: checks, lines: results });
+  return JSON.stringify({ pass: checks.filter(c => c.ok).length, total: checks.length, checks: checks });
 })()

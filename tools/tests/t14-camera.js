@@ -110,6 +110,8 @@
     samples.push({
       key: visible.key,
       zoom: zoom,
+      dx: Math.abs(headPt.x - size.x / 2) / size.x,
+      dy: Math.abs(headPt.y - size.y / 2) / size.y,
       midDx: Math.abs(midPt.x - size.x / 2) / size.x,
       midDy: Math.abs(midPt.y - size.y / 2) / size.y,
       startInside: startPt.x >= 0 && startPt.y >= 0 && startPt.x <= size.x && startPt.y <= size.y,
@@ -138,6 +140,9 @@
   add('所有线路取景都不比全览更远',
     A.plan.lines.every((_, i) => C.lineZoom(i) >= (overview ? overview.zoom : -1)),
     A.plan.lines.map((_, i) => C.lineZoom(i).toFixed(2)).join('/'));
+  add('所有线路共用同一个特写比例 A',
+    A.plan.lines.every((_, i) => Math.abs(C.lineZoom(i) - C.focusZoom) < 1e-9),
+    'A=' + C.focusZoom.toFixed(2) + ' / 全景=' + C.panoramaZoom.toFixed(2));
 
   /* D1.6 缩放值是连续量（小数），说明不再按整级跳动 */
   add('取景缩放为连续值（非整级跳变）',
@@ -145,13 +150,13 @@
     A.plan.lines.some((_, i) => Math.abs(C.lineZoom(i) - Math.round(C.lineZoom(i))) > 0.02),
     A.plan.lines.map((_, i) => C.lineZoom(i).toFixed(3)).join('/'));
 
-  /* D2 整条线路落在画面内（起点与头部都在视口内） */
-  add('绘制过程中起点与头部都在画面内', samples.every(s => s.startInside && s.headInside),
-    samples.filter(s => !(s.startInside && s.headInside)).length + ' 次越界');
+  /* D2 特写跟拍：头部始终在画面内（特写下起点允许出画） */
+  add('绘制过程中头部始终在画面内', samples.every(s => s.headInside),
+    samples.filter(s => !s.headInside).length + ' 次越界');
 
   /* D3 延伸路径中点居中 */
-  const maxMidOffset = samples.reduce((m, s) => Math.max(m, s.midDx, s.midDy), 0);
-  add('延伸路径中点贴近画面中心', maxMidOffset < 0.16, maxMidOffset.toFixed(3));
+  const maxHeadOffset2 = samples.reduce((m, s) => Math.max(m, s.dx, s.dy), 0);
+  add('镜头始终跟着延伸头部（头部贴近画面中心）', maxHeadOffset2 < 0.16, maxHeadOffset2.toFixed(3));
 
   /* D4 单站开通为特写 */
   add('单站开通时顶栏切换为「站点开通」', !!stationEventSample, JSON.stringify(stationEventSample));

@@ -169,9 +169,10 @@ var Story = {
     // 播放期间禁止手动改比例（滚轮已禁用，缩放按钮也置灰）
     if (typeof ZoomUI !== 'undefined') ZoomUI.setEnabled(false);
 
-    // 开场先给全览，第一个事件再飞入特写
+    // 开场先给全景，第一个事件再拉进特写
     Scene.fit(false);
     Camera.init();
+    Camera.setPanorama(App.map.getZoom());     // 全景比例 → 统一的特写比例 A
     Camera.active = true;
     Camera.resume();
     Camera.syncFromMap();
@@ -215,8 +216,8 @@ var Story = {
           ease: 'none',
           onUpdate: function () {
             var head = Scene.drawProgress(event.lineIndex, slot.value);
-            // 只平移：缩放保持 targetZoom 不变（一条线路内不改缩放）
-            if (head) Camera.panTo([(startPoint[0] + head[0]) / 2, (startPoint[1] + head[1]) / 2]);
+            // 只平移：缩放保持特写比例 A 不变；镜头跟着「正在延伸的头部」走
+            if (head) Camera.panTo([head[0], head[1]]);
             self.syncRevealedStats();
           }
         }, landAt + settle);
@@ -224,7 +225,17 @@ var Story = {
           self.drawing = false;
           Scene.setHeadVisible(event.lineIndex, false);
         }, null, landAt + settle + duration + 0.05);
-        cursor = landAt + settle + duration + timing.gap;
+        // 画完：拉回「全景比例」展示这条线的全景，再停留一拍
+        var panorama = Camera.linePanoramaTarget(event.lineIndex);
+        if (panorama) {
+          tl.call(function () {
+            Camera.flyTo([panorama.center.lat, panorama.center.lng], panorama.zoom, {
+              duration: CAMERA.flyBack,
+              dip: 0
+            });
+          }, null, landAt + settle + duration + 0.12);
+        }
+        cursor = landAt + settle + duration + (panorama ? CAMERA.flyBack + CAMERA.panoramaHold : 0) + timing.gap;
       } else {
         /* --- 单站开通：只点亮一个点（固定特写缩放，不再推近） --- */
         tl.call(function () {
@@ -234,7 +245,16 @@ var Story = {
           self.syncRevealedStats();
           self.applyHeader(event);
         }, null, landAt);
-        cursor = landAt + timing.stationHold + timing.gap;
+        var stationOverview = Camera.overviewTarget();
+        if (stationOverview) {
+          tl.call(function () {
+            Camera.flyTo([stationOverview.center.lat, stationOverview.center.lng], stationOverview.zoom, {
+              duration: CAMERA.flyBack,
+              dip: 0
+            });
+          }, null, landAt + timing.stationHold);
+        }
+        cursor = landAt + timing.stationHold + (stationOverview ? CAMERA.flyBack : 0) + timing.gap;
       }
     });
 
@@ -414,8 +434,10 @@ var Story = {
     return [latlng.lat, latlng.lng];
   },
 
-  /** 全览：所有已开通线路的渲染点 */
+  /** 全览：统一用全景比例（与"拉回原比例"的收束保持一致） */
   overviewTarget: function () {
+    var cameraOverview = typeof Camera !== 'undefined' ? Camera.overviewTarget() : null;
+    if (cameraOverview) return cameraOverview;
     var self = this;
     var points = [];
     Object.keys(this.openedLines).forEach(function (index) {

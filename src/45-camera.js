@@ -11,12 +11,16 @@ var CAMERA = {
   maxSpan: 60000,         // 最大视野跨度（米）
   stationSpan: 1800,      // 单站开通的取景跨度（特写）
   linePadding: 96,        // 单线取景留白（像素）
-  overviewPadding: 150,   // 全览留白（像素，比单线更大 → 全览一定比单线更远）
-  zoomStep: 0.75,         // 换级滞回：只在事件之间换级，线路运行途中不改缩放
+  overviewPadding: 150,   // 全景留白（像素）
+  focusGain: 2.2,         // 特写比例 A = 全景缩放 + 该值（再夹到下面区间）
+  focusMin: 12.5,
+  focusMax: 16,
+  flyBack: 1.3,           // 线路画完后拉回全景的时长
+  panoramaHold: 1.0,      // 全景停留（展示整条线路）
   lerpCenter: 0.18,       // 每帧向目标中心插值比例
   zoomDuration: 0.45,     // Leaflet 缩放动画时长（换层级时拉伸旧瓦片，不空白）
   panThresholdPx: 6,      // 中心变化超过该像素才重设视野（减少逐帧重排）
-  flight: 2.7             // 事件之间飞行时长（整体 0.5× 速度）
+  flight: 2.4             // 事件之间飞行时长
 };
 
 var Camera = {
@@ -24,9 +28,18 @@ var Camera = {
   flying: false,          // 是否正在事件之间的弧线飞行
   active: false,           // 只有在播放（镜头叙事）期间才驱动视野
   running: false,
+  panoramaZoom: 11,        // 全景比例（整张线网的适配缩放）
+  focusZoom: 14,           // 特写比例 A：所有线路共用的同一个缩放
   state: { lat: 27.865, lng: 113.135, zoom: 11 },
   target: { lat: 27.865, lng: 113.135, zoom: 11 },
   flightTween: null,
+
+  /** 设定全景比例，并据此推出统一的特写比例 A */
+  setPanorama: function (zoom) {
+    this.panoramaZoom = clamp(isFiniteNumber(zoom) ? zoom : 11, 4, 17);
+    this.focusZoom = clamp(this.panoramaZoom + CAMERA.focusGain, CAMERA.focusMin, CAMERA.focusMax);
+    return this.focusZoom;
+  },
 
   /** 启动平滑跟拍循环（全局只启动一次） */
   init: function () {
@@ -114,6 +127,14 @@ var Camera = {
 
   /* ------------------------------------------------------------ 目标设定 */
 
+  /** 预热某个中心点附近的瓦片（目标层级 ±1），用于换层前消除空白 */
+  prefetchForZoom: function (lat, lng, zoom) {
+    if (typeof Basemap === 'undefined' || !Basemap.prefetch || !App.map) return;
+    var pad = 0.06;
+    var bounds = L.latLngBounds([[lat - pad, lng - pad], [lat + pad, lng + pad]]);
+    Basemap.prefetch(bounds, [zoom - 1, zoom, zoom + 1]);
+  },
+
   /** 直接把当前视野吸附到目标（每个事件开画前对齐构图） */
   snapTo: function (center, zoom) {
     this.flying = false;
@@ -154,12 +175,37 @@ var Camera = {
     return clamp(zoom, 4, 17);
   },
 
-  /** 单条线路的固定缩放：按该线包围盒取景，整条线路落在画面内 */
-  lineZoom: function (lineIndex) {
+  /**
+   * 单条线路的特写缩放：**所有线路共用同一个比例 A**（不再按各线包围盒各算一个），
+   * 这样"拉进镜头—沿线展示—拉回全景—下一条线再拉进"的节奏完全一致。
+   */
+  lineZoom: function () {
+    return this.focusZoom;
+  },
+
+  /** 线路画完后要回到的「全景视野」：整线中心 + 全景比例 */
+  linePanoramaTarget: function (lineIndex) {
+    var map = App.map;
     var line = App.plan && App.plan.lines ? App.plan.lines[lineIndex] : null;
     var geometry = line && Scene.geometries ? Scene.geometries[line.key] : null;
-    if (!geometry || geometry.render.length < 2) return this.stationZoom();
-    return this.fitZoom(geometry.render, CAMERA.linePadding);
+    if (!map || !geometry || !geometry.render.length) return null;
+    var bounds = L.latLngBounds(geometry.render);
+    if (!bounds.isValid()) return null;
+    return { center: bounds.getCenter(), zoom: this.panoramaZoom };
+  },
+
+  /** 全网全览视野（与全景比例一致） */
+  overviewTarget: function () {
+    var map = App.map;
+    if (!map) return null;
+    var points = [];
+    Object.keys(Scene.geometries || {}).forEach(function (key) {
+      points = points.concat(Scene.geometries[key].render);
+    });
+    if (!points.length) return null;
+    var bounds = L.latLngBounds(points);
+    if (!bounds.isValid()) return null;
+    return { center: bounds.getCenter(), zoom: this.panoramaZoom };
   },
 
   /** 单站开通的固定缩放（特写） */
@@ -188,6 +234,8 @@ var Camera = {
     var distance = L.latLng(from.lat, from.lng).distanceTo(L.latLng(to.lat, to.lng));
     var dip = opts.dip === undefined ? clamp(distance / 34000, 0.15, 0.55) : opts.dip;
     var self = this;
+    // 起飞前预热目标层级 ±1，换层瞬间直接命中缓存
+    this.prefetchForZoom(to.lat, to.lng, to.zoom);
     var proxy = { t: 0 };
     killTweens(proxy);
     if (this.flightTween) killTweens(this.flightTween);

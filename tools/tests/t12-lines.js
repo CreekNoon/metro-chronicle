@@ -15,6 +15,8 @@
 
   /* ---------------------------------------------------- 1) 缩放控件（播放期可用） */
   const map = A.map;
+  document.getElementById('zoomFit').click();
+  await sleep(700);
   const zoom0 = map.getZoom();
   add('播放中地图手势已锁定', map.dragging.enabled() === false && map.scrollWheelZoom.enabled() === false);
   document.getElementById('zoomIn').click();
