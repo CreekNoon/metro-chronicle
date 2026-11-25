@@ -166,6 +166,52 @@ function sliceGeometryAt(geometry, ratio) {
   return { head: head, latlngs: latlngs };
 }
 
+/** 已完整走过的点下标（配合 headPointAt 用 canvas 描出"已揭示"的那一段） */
+function cutIndexAt(geometry, ratio) {
+  if (!geometry || !geometry.render || geometry.render.length < 2) return 0;
+  var p = clamp(isFinite(ratio) ? ratio : 0, 0, 1);
+  var last = geometry.render.length - 1;
+  if (p >= 1) return last;
+  if (p <= 0) return 0;
+  var target = geometry.totalMeters * p;
+  var cumulative = geometry.cumulative;
+  var lo = 0;
+  var hi = cumulative.length - 2;
+  while (lo < hi) {
+    var mid = (lo + hi) >> 1;
+    if (cumulative[mid + 1] < target) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
+}
+
+/** 只要「头部」位置：二分查找，比切出整段 latlng 便宜得多（逐帧调用） */
+function headPointAt(geometry, ratio) {
+  if (!geometry || !geometry.render || !geometry.render.length) return null;
+  var render = geometry.render;
+  var p = clamp(isFinite(ratio) ? ratio : 0, 0, 1);
+  if (p >= 1) return render[render.length - 1];
+  if (p <= 0) return render[0];
+
+  var target = geometry.totalMeters * p;
+  var cumulative = geometry.cumulative;
+  var lo = 0;
+  var hi = cumulative.length - 2;
+  while (lo < hi) {
+    var mid = (lo + hi) >> 1;
+    if (cumulative[mid + 1] < target) lo = mid + 1;
+    else hi = mid;
+  }
+  var segStart = cumulative[lo];
+  var segEnd = cumulative[lo + 1];
+  var denom = segEnd - segStart;
+  var t = denom > 1e-9 ? (target - segStart) / denom : 1;
+  t = clamp(t, 0, 1);
+  var a = render[lo];
+  var b = render[lo + 1] || a;
+  return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+}
+
 /** 统计一组站点的中心点（用于自定义城市的初始视野） */
 function averageCenter(stations) {
   if (!stations.length) return null;

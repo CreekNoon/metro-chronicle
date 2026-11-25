@@ -70,12 +70,18 @@
     document.getElementById('creditCity').textContent
   ].join('');
   add('无 emoji 装饰', !emoji.test(textSample), textSample);
-  // 底图低饱和：不再用 CSS 滤镜（逐帧重绘易闪），改用瓦片层不透明度做轻微淡化
-  add('底图轻微淡化（低饱和）', (() => {
+  // 底图不再做 CSS 滤镜 / 半透明处理（二者都会让每帧重新合成，拖低帧率）
+  add('底图不做滤镜或半透明处理（保证合成性能）', (() => {
     const layer = M.Basemap.primaryLayer;
-    if (M.Basemap.mode !== 'amap') return true;
-    return !!layer && Number(layer.options.opacity) > 0.8 && Number(layer.options.opacity) < 1;
-  })(), M.Basemap.primaryLayer ? 'opacity=' + M.Basemap.primaryLayer.options.opacity : 'n/a');
+    if (!layer) return true;
+    const opaque = Number(layer.options.opacity === undefined ? 1 : layer.options.opacity) >= 1;
+    const filtered = Array.from(document.styleSheets).some((sheet) => {
+      try {
+        return Array.from(sheet.cssRules).some((rule) => /leaflet-tile-pane[^{]*\{[^}]*filter/.test(String(rule.cssText)));
+      } catch (e) { return false; }
+    });
+    return opaque && !filtered;
+  })(), 'opacity=' + (M.Basemap.primaryLayer ? M.Basemap.primaryLayer.options.opacity : 'n/a'));
 
   /* ---- 重播 / 版权 ---- */
   add('重播按钮文案', document.getElementById('replayBtn').textContent.trim() === '重播', document.getElementById('replayBtn').textContent);

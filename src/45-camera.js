@@ -17,9 +17,9 @@ var CAMERA = {
   focusMax: 16,
   flyBack: 2.6,           // 线路画完后拉回全景的时长
   panoramaHold: 2.0,      // 全景停留（展示整条线路）
-  lerpCenter: 0.18,       // 每帧向目标中心插值比例
+  lerpCenter: 0.26,       // 每帧向目标中心插值比例（跟拍更贴手）
   zoomDuration: 0.9,      // Leaflet 缩放动画兜底时长
-  panThresholdPx: 6,      // 中心变化超过该像素才重设视野（减少逐帧重排）
+  regridAfterPx: 1400,    // 累计平移超过该像素才重算一次瓦片网格（避免频繁卡顿）
   flight: 4.8             // 事件之间飞行时长（整体 0.5× 速度）
 };
 
@@ -34,6 +34,8 @@ var Camera = {
   target: { lat: 27.865, lng: 113.135, zoom: 11 },
   flightTween: null,
   flightTimer: 0,
+  panAcc: { x: 0, y: 0 },   // 亚像素位移累积
+  moveAcc: 0,             // 距上次瓦片网格重算的累计位移
 
   /** 设定全景比例，并据此推出统一的特写比例 A */
   setPanorama: function (zoom) {
@@ -92,23 +94,54 @@ var Camera = {
       return;
     }
 
-    var s = this.state;
-    var t = this.target;
-    var kc = CAMERA.lerpCenter;
-    s.lat += (t.lat - s.lat) * kc;
-    s.lng += (t.lng - s.lng) * kc;
-
-    // 缩放只在「事件之间的飞行」里变化（一次动画到位），跟拍阶段只平移，绝不逐级跳动
-    s.zoom = map.getZoom();
+    var t0 = (typeof Metrics !== 'undefined' && Metrics.now) ? Metrics.now() : 0;
+    var zoom = map.getZoom();
     var center = map.getCenter();
-    var scale = 360 / (256 * Math.pow(2, map.getZoom()));
-    var latRad = center.lat * Math.PI / 180;
-    var px = Math.max(
-      Math.abs(s.lng - center.lng) / scale,
-      Math.abs(s.lat - center.lat) / (scale * Math.max(0.2, Math.cos(latRad)))
-    );
-    if (px < CAMERA.panThresholdPx) return;
-    map.setView(L.latLng(s.lat, s.lng), map.getZoom(), { animate: false });
+    var fromPx = map.project(center, zoom);
+    var toPx = map.project(L.latLng(this.target.lat, this.target.lng), zoom);
+    var dx = toPx.x - fromPx.x;
+    var dy = toPx.y - fromPx.y;
+    if (Math.abs(dx) < 0.4 && Math.abs(dy) < 0.4) {
+      if (t0) Metrics.add('camera', Metrics.now() - t0);
+      return;
+    }
+
+    // 每帧只挪剩余距离的一部分；亚像素位移累积，避免取整后慢速平移"卡住"
+    this.panAcc.x += dx * CAMERA.lerpCenter;
+    this.panAcc.y += dy * CAMERA.lerpCenter;
+    var size = map.getSize();
+    var limit = Math.max(48, Math.min(size.x, size.y) * 0.5);
+    var rx = clamp(Math.round(this.panAcc.x), -limit, limit);
+    var ry = clamp(Math.round(this.panAcc.y), -limit, limit);
+    if (!rx && !ry) {
+      if (t0) Metrics.add('camera', Metrics.now() - t0);
+      return;
+    }
+    this.panAcc.x -= rx;
+    this.panAcc.y -= ry;
+
+    /*
+     * 关键：用 Leaflet 的"原始平移"搬动画布，只改一个 transform。
+     * 瓦片、站点、线路路径都在 mapPane 里，跟随 transform 一起移动，
+     * 不需要重投影、不重建 SVG、不触发瓦片重算 —— 这是高帧率的来源。
+     */
+    map._rawPanBy(L.point(rx, ry));
+
+    /*
+     * 不逐帧（也不频繁）触发 move/moveend：每次 moveend 都会让瓦片层重算网格，
+     * 实测一次重算就是几百毫秒的卡顿。改成"攒够位移再补一次"，
+     * 配合瓦片层较大的 keepBuffer，整段跟拍几乎不触发重算。
+     */
+    this.moveAcc += Math.abs(rx) + Math.abs(ry);
+    if (this.moveAcc >= CAMERA.regridAfterPx) {
+      this.moveAcc = 0;
+      map.fire('moveend');
+    }
+
+    this.state.lat = map.getCenter().lat;
+    this.state.lng = map.getCenter().lng;
+    this.state.zoom = zoom;
+    if (t0) Metrics.add('camera', Metrics.now() - t0);
   },
 
   /* ------------------------------------------------------------ 目标设定 */

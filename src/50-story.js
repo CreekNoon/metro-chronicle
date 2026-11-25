@@ -223,6 +223,7 @@ var Story = {
         }, landAt + settle);
         tl.call(function () {
           self.drawing = false;
+          Scene.completeLine(event.lineIndex);
           Scene.setHeadVisible(event.lineIndex, false);
         }, null, landAt + settle + duration + 0.05);
         // 画完：拉回「全景比例」展示这条线的全景，再停留一拍
@@ -331,6 +332,7 @@ var Story = {
     var geometry = Scene.geometries[line.key];
     if (geometry && isFiniteNumber(geometry.totalMeters)) this.openedMeters += geometry.totalMeters;
     this.drawing = true;
+    if (typeof RouteCanvas !== 'undefined') RouteCanvas.begin(App.plan.lines[event.lineIndex].key);
     Scene.setHeadVisible(event.lineIndex, true);
     var route = Scene.routes[line.key];
     if (route && geometry && geometry.render.length) {
@@ -413,6 +415,11 @@ var Story = {
       }
     }
     if (!points.length) return;
+    if (event.type === 'line' && geometry && Basemap.prefetchRoute) {
+      // 沿线整条预取：跟拍时镜头沿线路缓慢平移，沿途瓦片必须提前到位
+      Basemap.prefetchRoute(geometry, [zoom, zoom - 1]);
+      return;
+    }
     Basemap.prefetch(L.latLngBounds(points), [zoom - 1, zoom, zoom + 1]);
   },
 

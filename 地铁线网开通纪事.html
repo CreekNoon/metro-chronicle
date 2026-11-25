@@ -2530,6 +2530,91 @@ function tweenTextNumber(el, from, to) {
   });
 }
 
+/* ===== 05-metrics.js ===== */
+/* ==========================================================================
+   05 · 帧性能采样（自测/调优用，不参与业务逻辑）
+   —— 统计 rAF 帧间隔、长帧数量，以及每帧在相机/场景上实际花掉的毫秒数，
+      用来验证"高帧率"是不是真的做到了，而不是靠肉眼感觉。
+   ========================================================================== */
+
+var Metrics = {
+  frames: 0,
+  fps: 60,
+  worstFrame: 0,
+  longFrames: 0,          // 超过 32ms（≈掉两帧）的帧数
+  work: {},               // 各模块累计耗时（毫秒）
+  workSamples: 0,
+  lastTs: 0,
+  window: [],
+  maxWindow: 900,
+  running: false,
+
+  now: function () {
+    return (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+  },
+
+  add: function (name, ms) {
+    if (!isFiniteNumber(ms) || ms < 0) return;
+    this.work[name] = (this.work[name] || 0) + ms;
+  },
+
+  start: function () {
+    if (this.running || typeof requestAnimationFrame !== 'function') return;
+    this.running = true;
+    var self = this;
+    var loop = function (ts) {
+      if (self.lastTs) {
+        var dt = ts - self.lastTs;
+        if (dt > 0) {
+          self.fps = self.fps * 0.9 + (1000 / dt) * 0.1;
+          if (dt > self.worstFrame) self.worstFrame = dt;
+          if (dt > 32) self.longFrames += 1;
+          self.window.push(dt);
+          if (self.window.length > self.maxWindow) self.window.shift();
+        }
+        self.workSamples += 1;
+      }
+      self.lastTs = ts;
+      self.frames += 1;
+      requestAnimationFrame(loop);
+    };
+    requestAnimationFrame(loop);
+  },
+
+  reset: function () {
+    this.frames = 0;
+    this.worstFrame = 0;
+    this.longFrames = 0;
+    this.work = {};
+    this.workSamples = 0;
+    this.window = [];
+  },
+
+  summary: function () {
+    var sorted = this.window.slice().sort(function (a, b) { return a - b; });
+    var pct = function (q) {
+      if (!sorted.length) return 0;
+      return sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * q))];
+    };
+    var work = {};
+    var samples = Math.max(1, this.workSamples);
+    Object.keys(this.work).forEach(function (key) {
+      work[key] = +(this.work[key] / samples).toFixed(3);
+    }, this);
+    return {
+      fps: +this.fps.toFixed(1),
+      worstFrame: +this.worstFrame.toFixed(1),
+      p50: +pct(0.5).toFixed(1),
+      p95: +pct(0.95).toFixed(1),
+      longFrames: this.longFrames,
+      frames: this.frames,
+      workPerFrame: work
+    };
+  }
+};
+
+Metrics.start();
+
 /* ===== 10-cities.js ===== */
 /* ==========================================================================
    10 · 数据层：线路类型 / 城市预设 / 方案（plan）规范化与持久化
@@ -3439,7 +3524,7 @@ var Basemap = {
       maxNativeZoom: isAmap ? 18 : 16,
       zoomOffset: -2,               // 低两级取图，由 Leaflet 放大
       crossOrigin: true,
-      keepBuffer: 4,
+      keepBuffer: 2,
       updateWhenZooming: false,
       className: 'basemap-backdrop',
       opacity: 1,
@@ -3468,7 +3553,7 @@ var Basemap = {
       maxZoom: 19,
       maxNativeZoom: 16,
       crossOrigin: true,
-      keepBuffer: 12,            // 多留几圈瓦片，平移/缩放时不易出现空白
+      keepBuffer: 6,             // 少量缓冲：瓦片越多，每帧合成越慢
       updateWhenZooming: false,
       pane: 'tilePane'
     });
@@ -3476,7 +3561,7 @@ var Basemap = {
       maxZoom: 19,
       maxNativeZoom: 16,
       crossOrigin: true,
-      keepBuffer: 12,
+      keepBuffer: 6,
       updateWhenZooming: false,
       pane: 'tilePane'
     });
@@ -3515,9 +3600,8 @@ var Basemap = {
       maxNativeZoom: 18,
       className: 'basemap-amap',
       crossOrigin: true,
-      keepBuffer: 12,            // 多留几圈瓦片，镜头平移时不易出现空白
+      keepBuffer: 6,             // 少量缓冲：瓦片越多，每帧合成越慢
       updateWhenZooming: false,
-      opacity: 0.94,             // 轻微透明代替 CSS 滤镜（逐帧滤镜会重绘、闪烁）
       pane: 'tilePane'
     });
     layer.addTo(this.map);
@@ -3747,6 +3831,60 @@ var Basemap = {
     return Math.min(urls.length, 96);
   },
 
+  /**
+   * 沿线路几何预取整条线路的瓦片（跟拍镜头会沿线缓慢平移，提前把沿途瓦片灌进缓存）。
+   * @param {object} geometry 渲染几何
+   * @param {Array} levels 目标层级列表（如 [特写层级, 特写层级-1]）
+   */
+  prefetchRoute: function (geometry, levels) {
+    var map = this.map;
+    var layer = this.primaryLayer || this.amapLayer || this.rasterLayers[this.rasterLayers.length - 1];
+    if (!map || !layer || typeof layer.getTileUrl !== 'function') return 0;
+    if (!geometry || !geometry.render || geometry.render.length < 2) return 0;
+
+    var render = geometry.render;
+    var seen = {};
+    var urls = [];
+    var maxNative = layer.options.maxNativeZoom || 18;
+
+    (levels || []).forEach(function (level) {
+      var zoom = clamp(Math.round(level), map.getMinZoom(), maxNative);
+      var scale = Math.pow(2, zoom);
+
+      var addTile = function (lat, lng) {
+        var px = map.project(L.latLng(lat, lng), zoom).divideBy(256).floor();
+        var key = zoom + ':' + px.x + ':' + px.y;
+        if (seen[key]) return;
+        seen[key] = true;
+        try { urls.push(layer.getTileUrl({ x: px.x, y: px.y, z: zoom })); } catch (err) { /* noop */ }
+      };
+
+      // 沿线每 ~100px 取一个采样点，保证路过的瓦片都被覆盖
+      for (var i = 0; i < render.length - 1; i += 1) {
+        var a = render[i];
+        var b = render[i + 1];
+        addTile(a[0], a[1]);
+        var pa = map.project(L.latLng(a[0], a[1]), zoom);
+        var pb = map.project(L.latLng(b[0], b[1]), zoom);
+        var dist = Math.max(Math.abs(pb.x - pa.x), Math.abs(pb.y - pa.y));
+        var steps = Math.min(24, Math.max(1, Math.round(dist / 100)));
+        for (var k = 1; k <= steps; k += 1) {
+          var t = k / steps;
+          addTile(a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t);
+        }
+      }
+      void scale;
+    });
+
+    var limit = 240;
+    urls.slice(0, limit).forEach(function (url) {
+      var img = new Image();
+      img.decoding = 'async';
+      img.src = url;
+    });
+    return Math.min(urls.length, limit);
+  },
+
   /* -------------------------------------------------------- 状态工具 */
 
   setMode: function (mode, datum) {
@@ -3968,6 +4106,52 @@ function sliceGeometryAt(geometry, ratio) {
   return { head: head, latlngs: latlngs };
 }
 
+/** 已完整走过的点下标（配合 headPointAt 用 canvas 描出"已揭示"的那一段） */
+function cutIndexAt(geometry, ratio) {
+  if (!geometry || !geometry.render || geometry.render.length < 2) return 0;
+  var p = clamp(isFinite(ratio) ? ratio : 0, 0, 1);
+  var last = geometry.render.length - 1;
+  if (p >= 1) return last;
+  if (p <= 0) return 0;
+  var target = geometry.totalMeters * p;
+  var cumulative = geometry.cumulative;
+  var lo = 0;
+  var hi = cumulative.length - 2;
+  while (lo < hi) {
+    var mid = (lo + hi) >> 1;
+    if (cumulative[mid + 1] < target) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
+}
+
+/** 只要「头部」位置：二分查找，比切出整段 latlng 便宜得多（逐帧调用） */
+function headPointAt(geometry, ratio) {
+  if (!geometry || !geometry.render || !geometry.render.length) return null;
+  var render = geometry.render;
+  var p = clamp(isFinite(ratio) ? ratio : 0, 0, 1);
+  if (p >= 1) return render[render.length - 1];
+  if (p <= 0) return render[0];
+
+  var target = geometry.totalMeters * p;
+  var cumulative = geometry.cumulative;
+  var lo = 0;
+  var hi = cumulative.length - 2;
+  while (lo < hi) {
+    var mid = (lo + hi) >> 1;
+    if (cumulative[mid + 1] < target) lo = mid + 1;
+    else hi = mid;
+  }
+  var segStart = cumulative[lo];
+  var segEnd = cumulative[lo + 1];
+  var denom = segEnd - segStart;
+  var t = denom > 1e-9 ? (target - segStart) / denom : 1;
+  t = clamp(t, 0, 1);
+  var a = render[lo];
+  var b = render[lo + 1] || a;
+  return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+}
+
 /** 统计一组站点的中心点（用于自定义城市的初始视野） */
 function averageCenter(stations) {
   if (!stations.length) return null;
@@ -4110,6 +4294,7 @@ var Scene = {
     });
 
     // 2) 线路三层描边（glow / casing / main）
+    if (typeof RouteCanvas !== 'undefined') RouteCanvas.reset();
     plan.lines.forEach(function (line) { self.createRouteLayers(line); });
 
     // 3) 站点：同 key 只建一个标记（换乘站共享）
@@ -4239,6 +4424,64 @@ var Scene = {
 
   /* ------------------------------------------------------- 绘制进度 */
 
+  /* ------------------------------------------- 渐进揭示（高帧率关键） */
+
+  /**
+   * 把整条线路的几何「一次性」交给三条折线，之后只用 stroke-dashoffset 揭示进度。
+   * 这样每帧只改样式（合成器直接处理），不必重建 SVG 路径，也不会触发 Leaflet 投影。
+   */
+  ensureRoutePath: function (lineKey) {
+    var route = this.routes[lineKey];
+    var geometry = this.geometries[lineKey];
+    if (!route || !geometry) return null;
+    var zoom = App.map ? App.map.getZoom() : 0;
+    if (route.pathZoom !== zoom) {
+      route.glow.setLatLngs(geometry.render);
+      route.casing.setLatLngs(geometry.render);
+      route.main.setLatLngs(geometry.render);
+      route.pathZoom = zoom;
+      route.dashLen = 0;
+      route.dashProgress = -1;
+    }
+    if (!route.dashLen) {
+      var el = route.main && route.main._path;
+      var len = 0;
+      if (el && typeof el.getTotalLength === 'function') {
+        try { len = el.getTotalLength(); } catch (err) { len = 0; }
+      }
+      route.dashLen = len || 0;
+    }
+    return route;
+  },
+
+  /** 设定线路的揭示进度（0~1）：纯样式更新，无需重建几何 */
+  setRouteProgress: function (lineKey, ratio) {
+    var route = this.ensureRoutePath(lineKey);
+    if (!route) return;
+    var p = clamp(ratio, 0, 1);
+    if (route.dashProgress === p) return;
+    route.dashProgress = p;
+
+    var apply = function (layer) {
+      var el = layer && layer._path;
+      if (!el) return;
+      if (p >= 0.9999) {
+        // 画完：交还给图层自身的样式（城际的虚线就是在这里恢复的）
+        el.style.strokeDasharray = '';
+        el.style.strokeDashoffset = '';
+        return;
+      }
+      var len = route.dashLen;
+      if (!len) return;
+      el.style.strokeDasharray = len + ' ' + len;
+      el.style.strokeDashoffset = String(len * (1 - p));
+    };
+    apply(route.main);
+    apply(route.casing);
+    apply(route.glow);
+    route.main.getPane && route.main.bringToBack && null;
+  },
+
   /** 按弧长比例绘制线路，并点亮已到达的站点 */
   drawProgress: function (lineIndex, ratio) {
     var line = this.plan && this.plan.lines[lineIndex];
@@ -4247,17 +4490,29 @@ var Scene = {
     var geometry = this.geometries[line.key];
     if (!route || !geometry) return;
 
-    var slice = sliceGeometryAt(geometry, ratio);
-    if (slice.latlngs.length >= 2 || ratio > 0) {
-      route.glow.setLatLngs(slice.latlngs);
-      route.casing.setLatLngs(slice.latlngs);
-      route.main.setLatLngs(slice.latlngs);
+    var t0 = (typeof Metrics !== 'undefined' && Metrics.now) ? Metrics.now() : 0;
+
+    /*
+     * 正在延伸的线路用 canvas 逐帧描路径（成本 ∝ 已画长度）；
+     * 画完之后才把整条几何交给 SVG（只画一次，之后随平移移动，不再重绘）。
+     */
+    var style = lineTypeStyle(line.type);
+    var index = cutIndexAt(geometry, ratio);
+    var headPoint = headPointAt(geometry, ratio);
+    if (typeof RouteCanvas !== 'undefined' && RouteCanvas.activeKey === line.key) {
+      RouteCanvas.draw(line.key, geometry, index, headPoint, {
+        color: line.color,
+        weight: style.weight,
+        casingWeight: style.casingWeight,
+        glowWeight: style.glowWeight,
+        glowOpacity: style.glowOpacity,
+        dash: !!style.dashArray
+      }, ratio);
     }
-    if (slice.head) {
-      route.head.setLatLng(L.latLng(slice.head[0], slice.head[1]));
+    if (headPoint) {
+      route.head.setLatLng(L.latLng(headPoint[0], headPoint[1]));
       route.head.setOpacity(1);
     }
-    var headPoint = slice.head;
 
     // 站点：弧长比例已到达 → 依次点亮（跨线共用站触发 ghost → transfer 变换）
     for (var i = 0; i < line.stations.length; i += 1) {
@@ -4278,6 +4533,7 @@ var Scene = {
       // 已开通线路 ≥ 2 条才升级为换乘站；多于 2 条时颜色数随之增加
       this.refreshInterchange(station.key, numberText);
     }
+    if (t0 && typeof Metrics !== 'undefined' && Metrics.add) Metrics.add('scene', Metrics.now() - t0);
     return headPoint;
   },
 
@@ -4431,8 +4687,8 @@ var Scene = {
     }
   },
 
-  /** 完整显示一条线（编辑态预览 / 结束态使用） */
-  showFullLine: function (lineIndex) {
+  /** 线路画完：SVG 一次性画出完整路径，canvas 收工 */
+  completeLine: function (lineIndex) {
     var line = this.plan && this.plan.lines[lineIndex];
     if (!line) return;
     var route = this.routes[line.key];
@@ -4441,6 +4697,13 @@ var Scene = {
     route.glow.setLatLngs(geometry.render);
     route.casing.setLatLngs(geometry.render);
     route.main.setLatLngs(geometry.render);
+    route.pathZoom = App.map ? App.map.getZoom() : 0;
+    if (typeof RouteCanvas !== 'undefined') RouteCanvas.finish();
+  },
+
+  /** 完整显示一条线（编辑态预览 / 结束态使用） */
+  showFullLine: function (lineIndex) {
+    this.completeLine(lineIndex);
   },
 
   showAllLines: function () {
@@ -4893,6 +5156,152 @@ function resolveLabelSidesFor(map, list) {
   layoutStationLabels(map.getSize(), entries);
 }
 
+/* ===== 42-route-canvas.js ===== */
+/* ==========================================================================
+   42 · 线路延伸的 canvas 渲染器（高帧率关键）
+   —— SVG 路径上做 dash 动画会每帧重绘整条路径的外接矩形，长线路直接把帧率打到
+      15~25fps。这里把「正在延伸的那条线」改为 canvas 逐帧绘制：
+      只描已揭示的那一段，成本 ∝ 已画长度；画完后一次性交还 SVG（只画一次）。
+   ========================================================================== */
+
+var RouteCanvas = {
+  map: null,
+  canvas: null,
+  ctx: null,
+  dpr: 1,
+  activeKey: null,
+  cache: {},          // 每个线路 key 的预投影点（按缩放层级缓存）
+
+  init: function (map) {
+    if (!map || this.canvas) return;
+    var canvas = document.createElement('canvas');
+    canvas.className = 'route-canvas';
+    canvas.style.position = 'absolute';
+    canvas.style.left = '0';
+    canvas.style.top = '0';
+    canvas.style.pointerEvents = 'none';
+    map.getPane('overlayPane').appendChild(canvas);
+    this.map = map;
+    this.canvas = canvas;
+    this.ctx = canvas.getContext('2d');
+    this.resize();
+    var self = this;
+    map.on('resize', function () { self.resize(); });
+    map.on('zoom', function () { self.cache = {}; });
+  },
+
+  resize: function () {
+    if (!this.map || !this.canvas) return;
+    var size = this.map.getSize();
+    var dpr = Math.min(window.devicePixelRatio || 1, 2);
+    this.dpr = dpr;
+    this.canvas.width = Math.max(1, Math.round(size.x * dpr));
+    this.canvas.height = Math.max(1, Math.round(size.y * dpr));
+    this.canvas.style.width = size.x + 'px';
+    this.canvas.style.height = size.y + 'px';
+    this.cache = {};
+  },
+
+  /** 预投影：同一缩放层级下只算一次，之后每帧零投影开销 */
+  projected: function (key, geometry) {
+    var zoom = this.map.getZoom();
+    var cache = this.cache[key];
+    if (cache && cache.zoom === zoom && cache.src === geometry.render) return cache;
+    var map = this.map;
+    var origin = map.getPixelOrigin();
+    var raw = geometry.render;
+    var pts = new Array(raw.length);
+    for (var i = 0; i < raw.length; i += 1) {
+      var pp = map.project(L.latLng(raw[i][0], raw[i][1]), zoom).subtract(origin);
+      pts[i] = [pp.x, pp.y];
+    }
+    cache = { zoom: zoom, src: raw, pts: pts };
+    this.cache[key] = cache;
+    return cache;
+  },
+
+  begin: function (key) {
+    this.activeKey = key;
+    this.clear();
+  },
+
+  clear: function () {
+    if (!this.ctx || !this.canvas) return;
+    this.ctx.setTransform(1, 0, 0, 1, 0, 0);
+    this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+  },
+
+  /**
+   * 绘制正在延伸的线路。
+   * @param {string} key 线路 key
+   * @param {object} geometry 渲染几何（render/cumulative/totalMeters）
+   * @param {number} index 已完整走过的点下标
+   * @param {Array} head 头部插值点（WGS84 lat/lng）
+   * @param {object} style 线型样式（weight/glowWeight/casingWeight/颜色/dash）
+   * @param {number} ratio 进度（0~1）
+   */
+  draw: function (key, geometry, index, head, style, ratio) {
+    var ctx = this.ctx;
+    var map = this.map;
+    if (!ctx || !map) return;
+    var t0 = (typeof Metrics !== 'undefined' && Metrics.now) ? Metrics.now() : 0;
+
+    var cache = this.projected(key, geometry);
+    var pts = cache.pts;
+    var panePos = map._getMapPanePos();
+    var dpr = this.dpr;
+
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+    ctx.setTransform(dpr, 0, 0, dpr, panePos.x * dpr, panePos.y * dpr);
+
+    var headPt = null;
+    if (head) {
+      var hp = map.project(L.latLng(head[0], head[1]), map.getZoom()).subtract(map.getPixelOrigin());
+      headPt = [hp.x, hp.y];
+    }
+
+    var trace = function () {
+      ctx.beginPath();
+      ctx.moveTo(pts[0][0], pts[0][1]);
+      for (var i = 1; i <= index && i < pts.length; i += 1) ctx.lineTo(pts[i][0], pts[i][1]);
+      if (headPt) ctx.lineTo(headPt[0], headPt[1]);
+    };
+
+    var paint = function (weight, color, opacity, dash) {
+      if (!(weight > 0)) return;
+      trace();
+      ctx.globalAlpha = opacity;
+      ctx.lineWidth = weight;
+      ctx.strokeStyle = color;
+      ctx.lineCap = dash ? 'butt' : 'round';
+      ctx.lineJoin = 'round';
+      if (dash && ctx.setLineDash) ctx.setLineDash(dash); else if (ctx.setLineDash) ctx.setLineDash([]);
+      ctx.stroke();
+      if (ctx.setLineDash) ctx.setLineDash([]);
+    };
+
+    paint(style.glowWeight, style.color, style.glowOpacity, null);
+    paint(style.casingWeight, '#ffffff', 0.96, null);
+    paint(style.weight, style.color, 1, style.dash ? [9, 6] : null);
+    ctx.globalAlpha = 1;
+
+    if (t0 && typeof Metrics !== 'undefined' && Metrics.add) Metrics.add('canvas', Metrics.now() - t0);
+  },
+
+  /** 线路画完：清掉 canvas，交给 SVG 的完整路径 */
+  finish: function () {
+    this.activeKey = null;
+    this.clear();
+  },
+
+  reset: function () {
+    this.activeKey = null;
+    this.cache = {};
+    this.clear();
+  }
+};
+
 /* ===== 45-camera.js ===== */
 /* ==========================================================================
    45 · 镜头（Camera）
@@ -4913,9 +5322,9 @@ var CAMERA = {
   focusMax: 16,
   flyBack: 2.6,           // 线路画完后拉回全景的时长
   panoramaHold: 2.0,      // 全景停留（展示整条线路）
-  lerpCenter: 0.18,       // 每帧向目标中心插值比例
+  lerpCenter: 0.26,       // 每帧向目标中心插值比例（跟拍更贴手）
   zoomDuration: 0.9,      // Leaflet 缩放动画兜底时长
-  panThresholdPx: 6,      // 中心变化超过该像素才重设视野（减少逐帧重排）
+  regridAfterPx: 1400,    // 累计平移超过该像素才重算一次瓦片网格（避免频繁卡顿）
   flight: 4.8             // 事件之间飞行时长（整体 0.5× 速度）
 };
 
@@ -4930,6 +5339,8 @@ var Camera = {
   target: { lat: 27.865, lng: 113.135, zoom: 11 },
   flightTween: null,
   flightTimer: 0,
+  panAcc: { x: 0, y: 0 },   // 亚像素位移累积
+  moveAcc: 0,             // 距上次瓦片网格重算的累计位移
 
   /** 设定全景比例，并据此推出统一的特写比例 A */
   setPanorama: function (zoom) {
@@ -4988,23 +5399,54 @@ var Camera = {
       return;
     }
 
-    var s = this.state;
-    var t = this.target;
-    var kc = CAMERA.lerpCenter;
-    s.lat += (t.lat - s.lat) * kc;
-    s.lng += (t.lng - s.lng) * kc;
-
-    // 缩放只在「事件之间的飞行」里变化（一次动画到位），跟拍阶段只平移，绝不逐级跳动
-    s.zoom = map.getZoom();
+    var t0 = (typeof Metrics !== 'undefined' && Metrics.now) ? Metrics.now() : 0;
+    var zoom = map.getZoom();
     var center = map.getCenter();
-    var scale = 360 / (256 * Math.pow(2, map.getZoom()));
-    var latRad = center.lat * Math.PI / 180;
-    var px = Math.max(
-      Math.abs(s.lng - center.lng) / scale,
-      Math.abs(s.lat - center.lat) / (scale * Math.max(0.2, Math.cos(latRad)))
-    );
-    if (px < CAMERA.panThresholdPx) return;
-    map.setView(L.latLng(s.lat, s.lng), map.getZoom(), { animate: false });
+    var fromPx = map.project(center, zoom);
+    var toPx = map.project(L.latLng(this.target.lat, this.target.lng), zoom);
+    var dx = toPx.x - fromPx.x;
+    var dy = toPx.y - fromPx.y;
+    if (Math.abs(dx) < 0.4 && Math.abs(dy) < 0.4) {
+      if (t0) Metrics.add('camera', Metrics.now() - t0);
+      return;
+    }
+
+    // 每帧只挪剩余距离的一部分；亚像素位移累积，避免取整后慢速平移"卡住"
+    this.panAcc.x += dx * CAMERA.lerpCenter;
+    this.panAcc.y += dy * CAMERA.lerpCenter;
+    var size = map.getSize();
+    var limit = Math.max(48, Math.min(size.x, size.y) * 0.5);
+    var rx = clamp(Math.round(this.panAcc.x), -limit, limit);
+    var ry = clamp(Math.round(this.panAcc.y), -limit, limit);
+    if (!rx && !ry) {
+      if (t0) Metrics.add('camera', Metrics.now() - t0);
+      return;
+    }
+    this.panAcc.x -= rx;
+    this.panAcc.y -= ry;
+
+    /*
+     * 关键：用 Leaflet 的"原始平移"搬动画布，只改一个 transform。
+     * 瓦片、站点、线路路径都在 mapPane 里，跟随 transform 一起移动，
+     * 不需要重投影、不重建 SVG、不触发瓦片重算 —— 这是高帧率的来源。
+     */
+    map._rawPanBy(L.point(rx, ry));
+
+    /*
+     * 不逐帧（也不频繁）触发 move/moveend：每次 moveend 都会让瓦片层重算网格，
+     * 实测一次重算就是几百毫秒的卡顿。改成"攒够位移再补一次"，
+     * 配合瓦片层较大的 keepBuffer，整段跟拍几乎不触发重算。
+     */
+    this.moveAcc += Math.abs(rx) + Math.abs(ry);
+    if (this.moveAcc >= CAMERA.regridAfterPx) {
+      this.moveAcc = 0;
+      map.fire('moveend');
+    }
+
+    this.state.lat = map.getCenter().lat;
+    this.state.lng = map.getCenter().lng;
+    this.state.zoom = zoom;
+    if (t0) Metrics.add('camera', Metrics.now() - t0);
   },
 
   /* ------------------------------------------------------------ 目标设定 */
@@ -5395,6 +5837,7 @@ var Story = {
         }, landAt + settle);
         tl.call(function () {
           self.drawing = false;
+          Scene.completeLine(event.lineIndex);
           Scene.setHeadVisible(event.lineIndex, false);
         }, null, landAt + settle + duration + 0.05);
         // 画完：拉回「全景比例」展示这条线的全景，再停留一拍
@@ -5503,6 +5946,7 @@ var Story = {
     var geometry = Scene.geometries[line.key];
     if (geometry && isFiniteNumber(geometry.totalMeters)) this.openedMeters += geometry.totalMeters;
     this.drawing = true;
+    if (typeof RouteCanvas !== 'undefined') RouteCanvas.begin(App.plan.lines[event.lineIndex].key);
     Scene.setHeadVisible(event.lineIndex, true);
     var route = Scene.routes[line.key];
     if (route && geometry && geometry.render.length) {
@@ -5585,6 +6029,11 @@ var Story = {
       }
     }
     if (!points.length) return;
+    if (event.type === 'line' && geometry && Basemap.prefetchRoute) {
+      // 沿线整条预取：跟拍时镜头沿线路缓慢平移，沿途瓦片必须提前到位
+      Basemap.prefetchRoute(geometry, [zoom, zoom - 1]);
+      return;
+    }
     Basemap.prefetch(L.latLngBounds(points), [zoom - 1, zoom, zoom + 1]);
   },
 
@@ -7487,6 +7936,7 @@ function boot() {
   try {
     createMap();
     Scene.init(App.map);
+  RouteCanvas.init(App.map);
     bindHud();
   } catch (err) {
     showFatal('初始化失败：' + (err && err.message ? err.message : err));
@@ -7544,6 +7994,7 @@ window.__METRO__ = {
   LineUI: LineUI,
   LineSelection: LineSelection,
   CitySearch: CitySearch,
+  Metrics: Metrics,
   ZoomUI: ZoomUI,
   RemoteStore: RemoteStore,
   api: {

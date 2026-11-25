@@ -12,11 +12,13 @@ const vendorDir = path.join(here, 'vendor');
 
 const APP_PARTS = [
   '00-util.js',
+  '05-metrics.js',
   '10-cities.js',
   '15-remote.js',
   '20-basemap.js',
   '30-geometry.js',
   '40-scene.js',
+  '42-route-canvas.js',
   '45-camera.js',
   '50-story.js',
   '60-edit.js',

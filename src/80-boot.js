@@ -245,6 +245,7 @@ function boot() {
   try {
     createMap();
     Scene.init(App.map);
+  RouteCanvas.init(App.map);
     bindHud();
   } catch (err) {
     showFatal('初始化失败：' + (err && err.message ? err.message : err));
@@ -302,6 +303,7 @@ window.__METRO__ = {
   LineUI: LineUI,
   LineSelection: LineSelection,
   CitySearch: CitySearch,
+  Metrics: Metrics,
   ZoomUI: ZoomUI,
   RemoteStore: RemoteStore,
   api: {

@@ -181,7 +181,7 @@ var Basemap = {
       maxNativeZoom: isAmap ? 18 : 16,
       zoomOffset: -2,               // 低两级取图，由 Leaflet 放大
       crossOrigin: true,
-      keepBuffer: 4,
+      keepBuffer: 2,
       updateWhenZooming: false,
       className: 'basemap-backdrop',
       opacity: 1,
@@ -210,7 +210,7 @@ var Basemap = {
       maxZoom: 19,
       maxNativeZoom: 16,
       crossOrigin: true,
-      keepBuffer: 12,            // 多留几圈瓦片，平移/缩放时不易出现空白
+      keepBuffer: 6,             // 少量缓冲：瓦片越多，每帧合成越慢
       updateWhenZooming: false,
       pane: 'tilePane'
     });
@@ -218,7 +218,7 @@ var Basemap = {
       maxZoom: 19,
       maxNativeZoom: 16,
       crossOrigin: true,
-      keepBuffer: 12,
+      keepBuffer: 6,
       updateWhenZooming: false,
       pane: 'tilePane'
     });
@@ -257,9 +257,8 @@ var Basemap = {
       maxNativeZoom: 18,
       className: 'basemap-amap',
       crossOrigin: true,
-      keepBuffer: 12,            // 多留几圈瓦片，镜头平移时不易出现空白
+      keepBuffer: 6,             // 少量缓冲：瓦片越多，每帧合成越慢
       updateWhenZooming: false,
-      opacity: 0.94,             // 轻微透明代替 CSS 滤镜（逐帧滤镜会重绘、闪烁）
       pane: 'tilePane'
     });
     layer.addTo(this.map);
@@ -487,6 +486,60 @@ var Basemap = {
       img.src = url;      // 进 HTTP 缓存；不保留引用
     });
     return Math.min(urls.length, 96);
+  },
+
+  /**
+   * 沿线路几何预取整条线路的瓦片（跟拍镜头会沿线缓慢平移，提前把沿途瓦片灌进缓存）。
+   * @param {object} geometry 渲染几何
+   * @param {Array} levels 目标层级列表（如 [特写层级, 特写层级-1]）
+   */
+  prefetchRoute: function (geometry, levels) {
+    var map = this.map;
+    var layer = this.primaryLayer || this.amapLayer || this.rasterLayers[this.rasterLayers.length - 1];
+    if (!map || !layer || typeof layer.getTileUrl !== 'function') return 0;
+    if (!geometry || !geometry.render || geometry.render.length < 2) return 0;
+
+    var render = geometry.render;
+    var seen = {};
+    var urls = [];
+    var maxNative = layer.options.maxNativeZoom || 18;
+
+    (levels || []).forEach(function (level) {
+      var zoom = clamp(Math.round(level), map.getMinZoom(), maxNative);
+      var scale = Math.pow(2, zoom);
+
+      var addTile = function (lat, lng) {
+        var px = map.project(L.latLng(lat, lng), zoom).divideBy(256).floor();
+        var key = zoom + ':' + px.x + ':' + px.y;
+        if (seen[key]) return;
+        seen[key] = true;
+        try { urls.push(layer.getTileUrl({ x: px.x, y: px.y, z: zoom })); } catch (err) { /* noop */ }
+      };
+
+      // 沿线每 ~100px 取一个采样点，保证路过的瓦片都被覆盖
+      for (var i = 0; i < render.length - 1; i += 1) {
+        var a = render[i];
+        var b = render[i + 1];
+        addTile(a[0], a[1]);
+        var pa = map.project(L.latLng(a[0], a[1]), zoom);
+        var pb = map.project(L.latLng(b[0], b[1]), zoom);
+        var dist = Math.max(Math.abs(pb.x - pa.x), Math.abs(pb.y - pa.y));
+        var steps = Math.min(24, Math.max(1, Math.round(dist / 100)));
+        for (var k = 1; k <= steps; k += 1) {
+          var t = k / steps;
+          addTile(a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t);
+        }
+      }
+      void scale;
+    });
+
+    var limit = 240;
+    urls.slice(0, limit).forEach(function (url) {
+      var img = new Image();
+      img.decoding = 'async';
+      img.src = url;
+    });
+    return Math.min(urls.length, limit);
   },
 
   /* -------------------------------------------------------- 状态工具 */

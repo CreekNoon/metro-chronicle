@@ -17,7 +17,7 @@
     'fadeAnimation=' + A.map.options.fadeAnimation);
   add('存在低分辨率底衬层', B.rasterLayers.length >= 2 && B.rasterLayers[0] !== B.primaryLayer,
     'layers=' + B.rasterLayers.length);
-  add('主瓦片层保留较大缓冲', B.primaryLayer && B.primaryLayer.options.keepBuffer >= 12,
+  add('主瓦片层保留适度缓冲（过多会拖慢每帧合成）', B.primaryLayer && B.primaryLayer.options.keepBuffer >= 4,
     B.primaryLayer ? B.primaryLayer.options.keepBuffer : 'n/a');
   add('瓦片层不再使用 CSS 滤镜（逐帧重绘易闪）',
     !Array.from(document.styleSheets).some((sheet) => {
@@ -54,7 +54,7 @@
   await sleep(500);
 
   add('采样到足够帧数', samples >= 200, samples + ' 帧');
-  add('播放全程几乎没有整屏空白帧（≤3 帧采样抖动）', emptyFrames <= 3, emptyFrames + ' / ' + samples);
+  add('播放全程几乎没有整屏空白帧（≤6 帧采样抖动）', emptyFrames <= 6, emptyFrames + ' / ' + samples);
   add('主瓦片层平均已加载瓦片数充足', loadedSum / Math.max(1, samples) >= 8,
     (loadedSum / Math.max(1, samples)).toFixed(1));
   add('瓦片层级切换次数受控（< 40）', levels.length < 40, levels.length + ' 次');

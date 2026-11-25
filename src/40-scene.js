@@ -52,6 +52,7 @@ var Scene = {
     });
 
     // 2) 线路三层描边（glow / casing / main）
+    if (typeof RouteCanvas !== 'undefined') RouteCanvas.reset();
     plan.lines.forEach(function (line) { self.createRouteLayers(line); });
 
     // 3) 站点：同 key 只建一个标记（换乘站共享）
@@ -181,6 +182,64 @@ var Scene = {
 
   /* ------------------------------------------------------- 绘制进度 */
 
+  /* ------------------------------------------- 渐进揭示（高帧率关键） */
+
+  /**
+   * 把整条线路的几何「一次性」交给三条折线，之后只用 stroke-dashoffset 揭示进度。
+   * 这样每帧只改样式（合成器直接处理），不必重建 SVG 路径，也不会触发 Leaflet 投影。
+   */
+  ensureRoutePath: function (lineKey) {
+    var route = this.routes[lineKey];
+    var geometry = this.geometries[lineKey];
+    if (!route || !geometry) return null;
+    var zoom = App.map ? App.map.getZoom() : 0;
+    if (route.pathZoom !== zoom) {
+      route.glow.setLatLngs(geometry.render);
+      route.casing.setLatLngs(geometry.render);
+      route.main.setLatLngs(geometry.render);
+      route.pathZoom = zoom;
+      route.dashLen = 0;
+      route.dashProgress = -1;
+    }
+    if (!route.dashLen) {
+      var el = route.main && route.main._path;
+      var len = 0;
+      if (el && typeof el.getTotalLength === 'function') {
+        try { len = el.getTotalLength(); } catch (err) { len = 0; }
+      }
+      route.dashLen = len || 0;
+    }
+    return route;
+  },
+
+  /** 设定线路的揭示进度（0~1）：纯样式更新，无需重建几何 */
+  setRouteProgress: function (lineKey, ratio) {
+    var route = this.ensureRoutePath(lineKey);
+    if (!route) return;
+    var p = clamp(ratio, 0, 1);
+    if (route.dashProgress === p) return;
+    route.dashProgress = p;
+
+    var apply = function (layer) {
+      var el = layer && layer._path;
+      if (!el) return;
+      if (p >= 0.9999) {
+        // 画完：交还给图层自身的样式（城际的虚线就是在这里恢复的）
+        el.style.strokeDasharray = '';
+        el.style.strokeDashoffset = '';
+        return;
+      }
+      var len = route.dashLen;
+      if (!len) return;
+      el.style.strokeDasharray = len + ' ' + len;
+      el.style.strokeDashoffset = String(len * (1 - p));
+    };
+    apply(route.main);
+    apply(route.casing);
+    apply(route.glow);
+    route.main.getPane && route.main.bringToBack && null;
+  },
+
   /** 按弧长比例绘制线路，并点亮已到达的站点 */
   drawProgress: function (lineIndex, ratio) {
     var line = this.plan && this.plan.lines[lineIndex];
@@ -189,17 +248,29 @@ var Scene = {
     var geometry = this.geometries[line.key];
     if (!route || !geometry) return;
 
-    var slice = sliceGeometryAt(geometry, ratio);
-    if (slice.latlngs.length >= 2 || ratio > 0) {
-      route.glow.setLatLngs(slice.latlngs);
-      route.casing.setLatLngs(slice.latlngs);
-      route.main.setLatLngs(slice.latlngs);
+    var t0 = (typeof Metrics !== 'undefined' && Metrics.now) ? Metrics.now() : 0;
+
+    /*
+     * 正在延伸的线路用 canvas 逐帧描路径（成本 ∝ 已画长度）；
+     * 画完之后才把整条几何交给 SVG（只画一次，之后随平移移动，不再重绘）。
+     */
+    var style = lineTypeStyle(line.type);
+    var index = cutIndexAt(geometry, ratio);
+    var headPoint = headPointAt(geometry, ratio);
+    if (typeof RouteCanvas !== 'undefined' && RouteCanvas.activeKey === line.key) {
+      RouteCanvas.draw(line.key, geometry, index, headPoint, {
+        color: line.color,
+        weight: style.weight,
+        casingWeight: style.casingWeight,
+        glowWeight: style.glowWeight,
+        glowOpacity: style.glowOpacity,
+        dash: !!style.dashArray
+      }, ratio);
     }
-    if (slice.head) {
-      route.head.setLatLng(L.latLng(slice.head[0], slice.head[1]));
+    if (headPoint) {
+      route.head.setLatLng(L.latLng(headPoint[0], headPoint[1]));
       route.head.setOpacity(1);
     }
-    var headPoint = slice.head;
 
     // 站点：弧长比例已到达 → 依次点亮（跨线共用站触发 ghost → transfer 变换）
     for (var i = 0; i < line.stations.length; i += 1) {
@@ -220,6 +291,7 @@ var Scene = {
       // 已开通线路 ≥ 2 条才升级为换乘站；多于 2 条时颜色数随之增加
       this.refreshInterchange(station.key, numberText);
     }
+    if (t0 && typeof Metrics !== 'undefined' && Metrics.add) Metrics.add('scene', Metrics.now() - t0);
     return headPoint;
   },
 
@@ -373,8 +445,8 @@ var Scene = {
     }
   },
 
-  /** 完整显示一条线（编辑态预览 / 结束态使用） */
-  showFullLine: function (lineIndex) {
+  /** 线路画完：SVG 一次性画出完整路径，canvas 收工 */
+  completeLine: function (lineIndex) {
     var line = this.plan && this.plan.lines[lineIndex];
     if (!line) return;
     var route = this.routes[line.key];
@@ -383,6 +455,13 @@ var Scene = {
     route.glow.setLatLngs(geometry.render);
     route.casing.setLatLngs(geometry.render);
     route.main.setLatLngs(geometry.render);
+    route.pathZoom = App.map ? App.map.getZoom() : 0;
+    if (typeof RouteCanvas !== 'undefined') RouteCanvas.finish();
+  },
+
+  /** 完整显示一条线（编辑态预览 / 结束态使用） */
+  showFullLine: function (lineIndex) {
+    this.completeLine(lineIndex);
   },
 
   showAllLines: function () {
