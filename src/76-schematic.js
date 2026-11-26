@@ -62,7 +62,7 @@ var Schematic = {
     this.svg = this.root.querySelector('.sc-svg');
     this.nodesLayer = this.root.querySelector('.sc-nodes');
 
-    this.rebuild();
+    this.rebuild({ autoPlay: false });
     this.bindCameraLoop();
 
     var veil = document.getElementById('veil');
@@ -105,15 +105,29 @@ var Schematic = {
   },
 
   /** 编辑完成后重新派生示意图（数据变了就重排 + 重绘） */
-  rebuild: function () {
+  rebuild: function (options) {
     if (!this.root) return false;
     var plan = App.plan;
     if (!plan || !plan.lines || !plan.lines.length) return false;
+    var opts = options || {};
+
+    // 数据变了：旧时间轴必须废弃，否则会拿旧事件的 lineIndex/stationKey 去点亮新城市的站
+    if (this.timeline) {
+      this.timeline.kill();
+      this.timeline = null;
+    }
+    this.running = false;
+    this.finished = false;
+    this.phase = 'idle';
+    this.lastSeek = 0;
+
     this.plan = plan;
     this.layout = this.computeLayout(plan);
     this.render();
     this.fitPanorama();
     this.computeEvents();
+
+    if (opts.autoPlay !== false) this.play();
     return true;
   },
 
@@ -128,6 +142,13 @@ var Schematic = {
    * 4) 标签方位：按相邻线段方向与重叠情况自动择优。
    */
   computeLayout: function (plan) {
+    // 与地理版一致：只处理"参与播放"的线路
+    var activeLines = plan.lines.filter(function (line) {
+      return typeof LineSelection === 'undefined' || LineSelection.isSelected(line.key);
+    });
+    var layoutPlan = { lines: activeLines.length ? activeLines : plan.lines };
+    plan = layoutPlan;
+
     var unit = SCHEMATIC.unit;
     var minUnit = SCHEMATIC.minUnit;
     var maxUnit = SCHEMATIC.maxUnit;
@@ -832,6 +853,7 @@ var Schematic = {
     (this.events || []).forEach(function (event) {
       var line = self.plan.lines[event.lineIndex];
       if (!line) return;
+      if (event.type === 'station' && !line.stations[event.stationIndex]) return;
       var entry = self.layout.lines.filter(function (item) { return item.line.key === line.key; })[0];
       if (!entry) return;
 
@@ -1087,6 +1109,60 @@ var Schematic = {
   },
 
   /* ---------------------------------------------------------- 调试接口 */
+
+  /**
+   * 现场自检报告：把当前示意图的关键状态一次性吐出来，便于定位"多出来的站/角度不对"。
+   */
+  report: function () {
+    var self = this;
+    var layout = this.layout;
+    if (!layout) return { ready: false };
+    var angles = [];
+    layout.lines.forEach(function (entry) {
+      for (var i = 1; i < entry.points.length; i += 1) {
+        var dx = entry.points[i].x - entry.points[i - 1].x;
+        var dy = entry.points[i].y - entry.points[i - 1].y;
+        var deg = (Math.atan2(dy, dx) * 180) / Math.PI;
+        var rest = ((deg % 45) + 45) % 45;
+        angles.push(Number(Math.min(rest, 45 - rest).toFixed(2)));
+      }
+    });
+    var visible = [];
+    Object.keys(this.nodes).forEach(function (key) {
+      var node = self.nodes[key];
+      var opacity = Number(getComputedStyle(node.el).opacity);
+      if (opacity <= 0.05) return;
+      visible.push({
+        name: node.node.name,
+        state: node.state,
+        lines: node.node.lineKeys,
+        opacity: Number(opacity.toFixed(2)),
+        opened: node.node.lineKeys.some(function (lineKey) {
+          var line = self.plan.lines.filter(function (item) { return item.key === lineKey; })[0];
+          if (!line) return false;
+          return line.stations.some(function (station) {
+            var target = self.nodes[station.key];
+            return target && target.state !== 'hidden';
+          });
+        })
+      });
+    });
+    return {
+      ready: true,
+      city: this.plan && (this.plan.cityName || App.cityId),
+      phase: this.phase,
+      totalNodes: Object.keys(this.nodes).length,
+      visibleCount: visible.length,
+      visible: visible,
+      segments: angles.length,
+      maxAngleDeviationDeg: angles.length ? Math.max.apply(null, angles) : 0,
+      fidelity: layout.fidelity || this.fidelity || null,
+      selectedLines: this.plan.lines.filter(function (line) {
+        return typeof LineSelection === 'undefined' || LineSelection.isSelected(line.key);
+      }).map(function (line) { return line.key; })
+    };
+  },
+
 
   snapshot: function () {
     var self = this;

@@ -332,6 +332,13 @@ function exportVideo(button) {
 }
 
 function boot() {
+  // BUILD_STAMP_READ：把构建戳暴露出来，方便确认"手上是不是最新版"
+  try {
+    var stampMeta = document.querySelector('meta[name="build"]');
+    App.buildStamp = stampMeta ? stampMeta.getAttribute('content') : 'unknown';
+    if (window.console && console.info) console.info('[metro-chronicle] build: ' + App.buildStamp);
+  } catch (err) { /* noop */ }
+
   if (!window.L || !window.gsap) {
     showFatal('内联依赖未就绪：请确认文件完整（Leaflet 1.9.4 / GSAP 3.12.5 已内联）。');
     return;
@@ -448,6 +455,7 @@ window.__METRO__ = {
   VideoExport: VideoExport,
   Schematic: Schematic,
   SCHEMATIC: SCHEMATIC,
+  buildStamp: function () { return App.buildStamp || 'unknown'; },
   SchematicVideo: SchematicVideo,
   engine: App.engine || 'leaflet',
   engineNow: function () { return App.engine || 'leaflet'; },

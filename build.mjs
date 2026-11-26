@@ -3,6 +3,7 @@
  * 用法：node build.mjs [输出路径]
  */
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
+import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
@@ -105,6 +106,14 @@ const banner = [
 ].join('\n');
 
 let html = shell;
+
+// 构建戳：git 短哈希 + 时间，方便确认"你手上的是不是最新版"
+let buildStamp = 'dev';
+try {
+  const hash = execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: here }).toString().trim();
+  buildStamp = hash + ' · ' + new Date().toISOString().slice(0, 16).replace('T', ' ');
+} catch (err) { /* 非 git 环境 */ }
+html = html.replace(/__BUILD_STAMP__/g, buildStamp);
 const replacements = [
   ['/*__LEAFLET_CSS__*/', guardInline(patchLeafletCss(leafletCssRaw), 'leaflet.css')],
   ['/*__APP_CSS__*/', guardInline(appCss, 'app.css')],
