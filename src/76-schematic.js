@@ -27,6 +27,7 @@ var Schematic = {
   layout: null,
   nodes: {},
   lines: {},
+  openedLineKeys: {},      // 已经"通车"的线路（换乘配色按它渐进）
   events: [],
   timeline: null,
   running: false,
@@ -614,6 +615,54 @@ var Schematic = {
     });
   },
 
+  /* --------------------------------------------------- 换乘配色（渐进） */
+
+  /** 标记某条线路已开通（会在开通的那一帧把沿线站点升级为换乘配色） */
+  markLineOpened: function (lineKey) {
+    if (!lineKey) return;
+    if (this.openedLineKeys[lineKey]) return;
+    this.openedLineKeys[lineKey] = true;
+    this.refreshAllStationStyles();
+  },
+
+  /** 该站"当前已开通"的线路颜色（按 plan 顺序去重） */
+  openedColorsFor: function (node) {
+    var self = this;
+    var colors = [];
+    (this.plan ? this.plan.lines : []).forEach(function (line) {
+      if (!self.openedLineKeys[line.key]) return;
+      if (node.lineKeys.indexOf(line.key) < 0) return;
+      if (colors.indexOf(line.color) < 0) colors.push(line.color);
+    });
+    return colors;
+  },
+
+  /**
+   * 按"当前已开通线路数"刷新单个站点的圆环样式：
+   * 1 条 → 单色；2 条及以上 → 多色换乘环（第三条接入时再变三色）。
+   */
+  refreshStationStyle: function (key) {
+    var entry = this.nodes[key];
+    if (!entry) return;
+    var colors = this.openedColorsFor(entry.node);
+    var el = entry.el;
+
+    if (colors.length >= 2) {
+      el.classList.add('is-transfer');
+      el.style.setProperty('--ring-gradient', conicRingGradient(colors));
+      el.style.setProperty('--line-color', colors[0]);
+      return;
+    }
+    el.classList.remove('is-transfer');
+    el.style.removeProperty('--ring-gradient');
+    if (colors.length === 1) el.style.setProperty('--line-color', colors[0]);
+  },
+
+  refreshAllStationStyles: function () {
+    var self = this;
+    Object.keys(this.nodes).forEach(function (key) { self.refreshStationStyle(key); });
+  },
+
   /* ------------------------------------------------------------- 渲染 */
 
   render: function () {
@@ -683,17 +732,13 @@ var Schematic = {
     layout.order.forEach(function (key) {
       var node = layout.nodes[key];
       var line = self.plan.lines.filter(function (item) { return item.key === node.lineKeys[0]; })[0];
-      var transfer = node.lineKeys.length >= 2;
-      var ringStyle = ringStyleVars(self.plan, key);
       var classes = ['st', 'is-hidden', 'side-' + (node.labelSide || 'bottom')];
-      if (transfer) classes.push('is-transfer');
       if (line && line.type === 'intercity') classes.push('has-rail');
 
       var el = document.createElement('div');
       el.className = classes.join(' ');
       el.setAttribute('data-station-key', key);
       el.style.setProperty('--line-color', line ? line.color : '#666');
-      if (ringStyle) el.setAttribute('style', '--line-color:' + (line ? line.color : '#666') + ';' + ringStyle);
       el.innerHTML =
         '<span class="st-halo"></span>' +
         '<span class="st-ring"></span>' +
@@ -727,11 +772,12 @@ var Schematic = {
     var target = this.nodes[key];
     if (!target) return;
     target.state = state;
+    this.refreshStationStyle(key);
     target.el.classList.remove('is-hidden', 'is-ghost', 'is-opened', 'is-transfer-lit');
     if (state === 'hidden') target.el.classList.add('is-hidden');
     else if (state === 'ghost') target.el.classList.add('is-ghost');
     else target.el.classList.add('is-opened');
-    target.el.classList.toggle('is-transfer', target.node.lineKeys.length >= 2 && state !== 'hidden');
+    // 换乘样式由 refreshStationStyle 按"当前已开通线路数"决定，这里不再按静态线路数判定
   },
 
   /* ------------------------------------------------------------- 视口 */
@@ -808,7 +854,8 @@ var Schematic = {
     this.phase = 'intro';
     this.startedAt = this.startedAt || performance.now();
 
-    // 归零：全部隐藏、线路全未绘制
+    // 归零：全部隐藏、线路全未绘制、换乘配色回到单色
+    this.openedLineKeys = {};
     this.layout.order.forEach(function (key) { self.setStationState(key, 'hidden'); });
     this.layout.lines.forEach(function (entry) { self.setLineProgress(entry.line.key, 0); });
     this.updateStats(false);
@@ -839,6 +886,8 @@ var Schematic = {
         // 1) 镜头推到线路起点（特写）
         tl.call(function () {
           self.phase = 'travel';
+          // 线路"通车"的这一刻起，沿线已点亮的站才升级为换乘配色
+          self.markLineOpened(line.key);
           self.updateHud({ dateText: event.dateText, line: line, name: line.name });
           var first = entry.points[0];
           self.centerOn(first.x, first.y, self.focusScale);
@@ -938,9 +987,13 @@ var Schematic = {
       this.timeline = null;
     }
     var self = this;
+    if (this.plan) {
+      this.plan.lines.forEach(function (line) { self.openedLineKeys[line.key] = true; });
+    }
     this.layout.order.forEach(function (key) {
       if (self.nodes[key].state === 'hidden') self.setStationState(key, 'opened');
     });
+    this.refreshAllStationStyles();
     this.layout.lines.forEach(function (entry) { self.setLineProgress(entry.line.key, 1); });
     this.running = false;
     this.finished = true;

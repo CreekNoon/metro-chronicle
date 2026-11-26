@@ -214,10 +214,17 @@ var SchematicVideo = {
       var state = Schematic.nodes[key];
       if (!state || state.state === 'hidden') return;
       var node = state.node;
-      var colors = node.lineKeys.map(function (lineKey) {
-        var line = Schematic.plan.lines.filter(function (item) { return item.key === lineKey; })[0];
-        return line ? line.color : '#666';
-      });
+      // 与页面一致：只统计"当前已开通"的线路，第二条线接入后才变多色环
+      var colors = (typeof Schematic.openedColorsFor === 'function')
+        ? Schematic.openedColorsFor(node)
+        : node.lineKeys.map(function (lineKey) {
+          var line = Schematic.plan.lines.filter(function (item) { return item.key === lineKey; })[0];
+          return line ? line.color : '#666';
+        });
+      if (!colors.length) {
+        var fallback = Schematic.plan.lines.filter(function (item) { return item.key === node.lineKeys[0]; })[0];
+        colors = [fallback ? fallback.color : '#666'];
+      }
       var transfer = colors.length >= 2;
       var primary = colors[0] || '#666';
 

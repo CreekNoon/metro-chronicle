@@ -67,11 +67,16 @@
   add('每条线三层描边（光晕/白边/主线）', paths.length === plan.lines.length * 3, paths.length + ' 条 path');
   const nodeEls = document.querySelectorAll('#scMap .sc-nodes .st');
   add('站点节点数量正确', nodeEls.length === L.order.length, nodeEls.length + ' 个');
-  const transferEls = Array.from(nodeEls).filter((el) => el.classList.contains('is-transfer'));
-  add('换乘站使用多色圆环', transferEls.every((el) => {
-    const style = el.getAttribute('style') || '';
-    return style.indexOf('--ring-gradient') >= 0;
-  }), transferEls.length + ' 个换乘站');
+  // 换乘配色是"渐进"的：只有已开通线路 ≥2 条时才用多色环（详见 t29）
+  const nodeAtStart = Array.from(nodeEls);
+  const wronglyTransfer = nodeAtStart.filter((el) => {
+    const key = el.getAttribute('data-station-key');
+    const entry = S.nodes[key];
+    const opened = entry ? S.openedColorsFor(entry.node).length : 0;
+    return opened < 2 && el.classList.contains('is-transfer');
+  });
+  add('未开通第二条线时不使用换乘双色样式', wronglyTransfer.length === 0,
+    wronglyTransfer.length + ' 个误标');
   const labelCount = document.querySelectorAll('#scMap .sc-nodes .st-name').length;
   add('站名标签全部渲染', labelCount === L.order.length, labelCount + ' 个');
   add('示意图尺寸已按视口适配（全景≈1 倍）', Math.abs(S.panoramaScale - 1) < 0.35, S.panoramaScale.toFixed(2));
