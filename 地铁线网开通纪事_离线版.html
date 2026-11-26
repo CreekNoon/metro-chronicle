@@ -8,7 +8,7 @@
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8" />
-  <meta name="build" content="ce2e6ac · 2026-11-26 11:15" />
+  <meta name="build" content="b30c7e4 · 2026-11-26 13:42" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <meta name="color-scheme" content="light" />
 <meta name="description" content="城市地铁线网开通纪事：单文件离线可视化，支持多线路、城际铁路、城市切换与线网编辑" />
@@ -10512,8 +10512,9 @@ var Schematic = {
         var dyGeo = -(next.lat - prev.lat);
         var lenGeo = Math.hypot(dxGeo, dyGeo);
         var angle = lenGeo > 1e-9 ? Math.atan2(dyGeo, dxGeo) : -Math.PI / 2;
-        var snapped = Math.round(angle / (Math.PI / 4)) * (Math.PI / 4);
-        segs.push({ dir: { x: Math.cos(snapped), y: Math.sin(snapped) }, lenGeo: lenGeo });
+        // 不做 45° 吸附：直接沿用真实方位角，交给站点对齐与间距约束去整理，
+        // 这样线网既跟随真实走向，也不会在换乘站处出现硬折角造成的碎段/断线
+        segs.push({ dir: { x: Math.cos(angle), y: Math.sin(angle) }, lenGeo: lenGeo });
         geoMaxLen = Math.max(geoMaxLen, lenGeo);
       }
       return { line: line, segs: segs };
@@ -10697,14 +10698,12 @@ var Schematic = {
       });
       var sample = owners[0];
       var station = plan.lines[sample.lineIndex].stations[sample.stationIndex];
-      // 站点位置取"线路最长的那条线"的落点：主干线保持严格八方向，其它线只在换乘处轻微贴合
-      var primary = owners[0];
-      owners.forEach(function (entry) {
-        if (plan.lines[entry.lineIndex].stations.length > plan.lines[primary.lineIndex].stations.length) primary = entry;
-      });
-      var anchorPoint = shapePosition(lineShapes[primary.lineIndex], primary.stationIndex);
+      // 站点位置取各条线落点的平均：换乘处每条线只偏差一半，直线连接时不会出现大折角
+      var anchorPoint = { x: cx / owners.length, y: cy / owners.length };
       nodes[key] = {
         key: key,
+        gx: (station.lng - (plan.view ? plan.view.center[1] : station.lng)),
+        gy: -(station.lat - (plan.view ? plan.view.center[0] : station.lat)),
         name: station.name,
         lat: station.lat,
         lng: station.lng,
@@ -10713,8 +10712,6 @@ var Schematic = {
         y: anchorPoint.y,
         labelSide: 'bottom'
       };
-      void cx;
-      void cy;
       order.push(key);
     });
 
@@ -10737,37 +10734,15 @@ var Schematic = {
       };
     });
 
-    // 每条线严格穿过站点中心，并在需要处插入 90°/45° 折角 —— 保证所有线段都落在 8 个方向上
-    var isOctilinear = function (dx, dy) {
-      var eps = 0.75;
-      if (Math.abs(dx) < eps || Math.abs(dy) < eps) return true;
-      return Math.abs(Math.abs(dx) - Math.abs(dy)) < eps;
-    };
-
+    // 站点之间直接连线：每条线都严格穿过站点中心
+    // （不再插入 45°/90° 折角 —— 折角在两个站离得很近时会变成几像素的"碎段"，
+    //   把换乘站处的线路切断，看起来像断线/错位）
     linePaths.forEach(function (entry) {
-      var stations = entry.line.stations.map(function (station) {
+      var points = entry.line.stations.map(function (station) {
         var node = nodes[station.key];
         return { x: node.x, y: node.y };
       });
-      var points = [stations[0]];
-      var stationIndices = [0];
-      for (var i = 1; i < stations.length; i += 1) {
-        var a = stations[i - 1];
-        var b = stations[i];
-        var dx = b.x - a.x;
-        var dy = b.y - a.y;
-        if (!isOctilinear(dx, dy) && (Math.abs(dx) > 1 || Math.abs(dy) > 1)) {
-          var elbow;
-          if (Math.abs(dx) >= Math.abs(dy)) {
-            elbow = { x: b.x - Math.sign(dx) * Math.abs(dy), y: a.y };
-          } else {
-            elbow = { x: a.x, y: b.y - Math.sign(dy) * Math.abs(dx) };
-          }
-          points.push(elbow);
-        }
-        points.push(b);
-        stationIndices.push(points.length - 1);
-      }
+      var stationIndices = points.map(function (point, index) { return index; });
 
       var cumulative = [0];
       var total = 0;
@@ -11499,7 +11474,25 @@ var Schematic = {
       visibleCount: visible.length,
       visible: visible,
       segments: angles.length,
-      maxAngleDeviationDeg: angles.length ? Math.max.apply(null, angles) : 0,
+      // 不再要求 45°；这里只保留"离 45° 多远"作为参考值
+      angleDeviationFrom45Deg: angles.length ? Number(Math.max.apply(null, angles).toFixed(1)) : 0,
+      extraPoints: (function () {
+        var extra = 0;
+        layout.lines.forEach(function (entry) {
+          extra += Math.max(0, entry.points.length - entry.line.stations.length);
+        });
+        return extra;
+      })(),
+      tinySegments: (function () {
+        var tiny = 0;
+        layout.lines.forEach(function (entry) {
+          for (var i = 1; i < entry.points.length; i += 1) {
+            var len = Math.hypot(entry.points[i].x - entry.points[i - 1].x, entry.points[i].y - entry.points[i - 1].y);
+            if (len < 12) tiny += 1;
+          }
+        });
+        return tiny;
+      })(),
       fidelity: layout.fidelity || this.fidelity || null,
       selectedLines: this.plan.lines.filter(function (line) {
         return typeof LineSelection === 'undefined' || LineSelection.isSelected(line.key);

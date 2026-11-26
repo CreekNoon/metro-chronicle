@@ -9,29 +9,39 @@
   add('构建戳可读（便于确认版本）', typeof M.buildStamp === 'function' && M.buildStamp() !== 'unknown', M.buildStamp ? M.buildStamp() : 'n/a');
   if (!S || !S.root) return JSON.stringify({ pass: checks.filter(c => c.ok).length, total: checks.length, checks: checks });
 
-  /* ---------- A 角度：所有渲染线段严格 45°/90° ---------- */
-  const measureAngles = () => {
-    const offenders = [];
-    let total = 0;
-    Array.from(document.querySelectorAll('#scMap .sc-line .sc-main')).forEach((path) => {
-      const d = path.getAttribute('d') || '';
-      const nums = (d.match(/-?\d+(\.\d+)?/g) || []).map(Number);
-      const pts = [];
-      for (let i = 0; i + 1 < nums.length; i += 2) pts.push({ x: nums[i], y: nums[i + 1] });
-      for (let k = 1; k < pts.length; k += 1) {
-        total += 1;
-        const deg = (Math.atan2(pts[k].y - pts[k - 1].y, pts[k].x - pts[k - 1].x) * 180) / Math.PI;
-        const rest = ((deg % 45) + 45) % 45;
-        const dev = Math.min(rest, 45 - rest);
-        if (dev > 0.6) offenders.push(Number(dev.toFixed(1)));
+  /* ---------- A 直线性：站点之间是直线，没有折角/碎段/断线 ---------- */
+  const measureStraightness = () => {
+    let segments = 0;
+    let extraPoints = 0;
+    let tiny = 0;
+    let minLen = Infinity;
+    const data = (S.layout && S.layout.lines) || [];
+    data.forEach((entry) => {
+      extraPoints += Math.max(0, entry.points.length - entry.line.stations.length);
+      for (let i = 1; i < entry.points.length; i += 1) {
+        const len = Math.hypot(entry.points[i].x - entry.points[i - 1].x, entry.points[i].y - entry.points[i - 1].y);
+        segments += 1;
+        minLen = Math.min(minLen, len);
+        if (len < 12) tiny += 1;
       }
     });
-    return { total, offenders };
+    return { segments, extraPoints, tiny, minLen };
   };
 
-  const angles0 = measureAngles();
-  add('渲染出的每条线段都落在 45° 整数倍上', angles0.offenders.length === 0,
-    angles0.total + ' 段，越界 ' + angles0.offenders.length + (angles0.offenders.length ? ' → ' + angles0.offenders.join(',') : ''));
+  const line0 = measureStraightness();
+  add('渲染折线点数 = 站数（没有隐藏折角点）', line0.extraPoints === 0, line0.extraPoints + ' 个多余点');
+  add('没有短于 12px 的碎段（不会出现断线/错位观感）', line0.tiny === 0, '最短 ' + line0.minLen.toFixed(1) + 'px');
+
+  // 每个站点都必须落在它的线路上（距离 ≈ 0）
+  let maxStationOffset = 0;
+  (S.layout ? S.layout.lines : []).forEach((entry) => {
+    entry.line.stations.forEach((station, index) => {
+      const node = S.layout.nodes[station.key];
+      const point = entry.points[entry.stationIndices[index]];
+      maxStationOffset = Math.max(maxStationOffset, Math.hypot(node.x - point.x, node.y - point.y));
+    });
+  });
+  add('每个站点都精确落在其线路折线上', maxStationOffset < 0.01, maxStationOffset.toFixed(3) + 'px');
 
   /* ---------- B 站点点亮规则：只能出现在"已开通线路"上 ---------- */
   const auditVisible = (label) => {
@@ -60,8 +70,8 @@
   add('切换城市后布局换成新数据', sw.totalNodes === planKeys.size, sw.totalNodes + ' vs ' + planKeys.size);
   add('切换城市后时间轴重新开始（不复用旧事件）', S.running === true || S.phase !== 'done', S.phase + '/' + S.running);
   add('切换城市后没有残留错站', strayNames.length === 0, strayNames.join(',') || 'ok');
-  const angles1 = measureAngles();
-  add('切换城市后角度仍然严格', angles1.offenders.length === 0, angles1.total + ' 段');
+  const line1 = measureStraightness();
+  add('切换城市后仍是直线、无碎段', line1.extraPoints === 0 && line1.tiny === 0, line1.segments + ' 段');
 
   /* ---------- D 取消线路选择后，示意图不再为它布局 ---------- */
   const beforeSel = S.report();
@@ -73,14 +83,15 @@
     beforeSel.selectedLines.join(',') + ' → ' + afterSel.selectedLines.join(','));
   add('取消勾选后线段数减少（不再为它留位置）', afterSel.segments < beforeSel.segments,
     beforeSel.segments + ' → ' + afterSel.segments);
-  add('取消勾选后角度仍然严格', afterSel.maxAngleDeviationDeg <= 0.6, afterSel.maxAngleDeviationDeg + '°');
+  add('取消勾选后仍无隐藏折角/碎段', (afterSel.extraPoints || 0) === 0 && (afterSel.tinySegments || 0) === 0,
+    'extra=' + (afterSel.extraPoints || 0) + ' tiny=' + (afterSel.tinySegments || 0));
 
   /* ---------- E report() 结构 ---------- */
   const rep = S.report();
   add('report() 含关键字段',
     typeof rep.city === 'string' && typeof rep.visibleCount === 'number' &&
-    typeof rep.maxAngleDeviationDeg === 'number' && !!rep.fidelity,
-    JSON.stringify({ city: rep.city, visible: rep.visibleCount, maxDev: rep.maxAngleDeviationDeg }));
+    typeof rep.extraPoints === 'number' && !!rep.fidelity,
+    JSON.stringify({ city: rep.city, visible: rep.visibleCount, extra: rep.extraPoints }));
 
   return JSON.stringify({ pass: checks.filter(c => c.ok).length, total: checks.length, checks: checks });
 })()

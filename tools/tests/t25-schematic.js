@@ -13,16 +13,20 @@
   const plan = M.App.plan;
 
   /* ---------- A 布局：八方向、间距、换乘合点 ---------- */
-  let offGrid = 0;
-  let worstDeg = 0;
-  L.edges.forEach((edge) => {
-    const deg = (Math.atan2(edge.y2 - edge.y1, edge.x2 - edge.x1) * 180) / Math.PI;
-    const rest = ((deg % 45) + 45) % 45;
-    const delta = Math.min(rest, 45 - rest);
-    if (delta > 1.5) offGrid += 1;
-    worstDeg = Math.max(worstDeg, delta);
+  // 不再强制 45°：改为校验「站点之间是直线、没有隐藏折角、没有碎段」
+  let extraPoints = 0;
+  let tinySegments = 0;
+  let minSegLen = Infinity;
+  L.lines.forEach((entry) => {
+    extraPoints += Math.max(0, entry.points.length - entry.line.stations.length);
+    for (let i = 1; i < entry.points.length; i += 1) {
+      const len = Math.hypot(entry.points[i].x - entry.points[i - 1].x, entry.points[i].y - entry.points[i - 1].y);
+      minSegLen = Math.min(minSegLen, len);
+      if (len < 12) tinySegments += 1;
+    }
   });
-  add('所有线段严格落在 8 个方向上（45° 整数倍）', offGrid === 0, offGrid + '/' + L.edges.length + ' 越界，最大偏差 ' + worstDeg.toFixed(2) + '°');
+  add('站点之间直接连线（没有隐藏折角点）', extraPoints === 0, extraPoints + ' 个多余折点');
+  add('没有碎段（每段 ≥ 12px）', tinySegments === 0, '最短 ' + minSegLen.toFixed(1) + 'px');
 
   const stationKeys = new Set();
   plan.lines.forEach((line) => line.stations.forEach((station) => stationKeys.add(station.key)));
@@ -107,9 +111,9 @@
   const fidelity = L.fidelity || (S.fidelity || null);
   add('记录走向保真度指标', !!fidelity, JSON.stringify(fidelity));
   if (fidelity) {
-    add('站对相对方位与真实地理一致率 ≥ 75%', fidelity.quadrants >= 0.75,
+    add('站对相对方位与真实地理一致率 ≥ 90%', fidelity.quadrants >= 0.9,
       (fidelity.quadrants * 100).toFixed(1) + '% / ' + fidelity.pairs + ' 对');
-    add('每条线整体走向平均偏差 ≤ 12°', fidelity.bearingMeanDeg <= 12, fidelity.bearingMeanDeg + '°');
+    add('每条线整体走向平均偏差 ≤ 8°', fidelity.bearingMeanDeg <= 8, fidelity.bearingMeanDeg + '°');
   }
 
   /* ---------- B4 顶栏「示意图」按钮（运行中切换） ---------- */
@@ -139,15 +143,18 @@
   M.App.plan.lines.forEach((line) => line.stations.forEach((station) => xiangtanKeys.add(station.key)));
   add('切换城市后示意图自动重新派生', nodesAfter === xiangtanKeys.size && nodesAfter !== nodesBefore,
     nodesBefore + ' → ' + nodesAfter);
-  add('重新派生后仍是八方向布局', (() => {
-    let bad = 0;
-    S.layout.edges.forEach((edge) => {
-      const deg = (Math.atan2(edge.y2 - edge.y1, edge.x2 - edge.x1) * 180) / Math.PI;
-      const rest = ((deg % 45) + 45) % 45;
-      if (Math.min(rest, 45 - rest) > 1.5) bad += 1;
+  add('重新派生后仍是直线、无碎段', (() => {
+    let extra = 0;
+    let tiny = 0;
+    S.layout.lines.forEach((entry) => {
+      extra += Math.max(0, entry.points.length - entry.line.stations.length);
+      for (let i = 1; i < entry.points.length; i += 1) {
+        const len = Math.hypot(entry.points[i].x - entry.points[i - 1].x, entry.points[i].y - entry.points[i - 1].y);
+        if (len < 12) tiny += 1;
+      }
     });
-    return bad === 0;
-  })(), S.layout.edges.length + ' 条边');
+    return extra === 0 && tiny === 0;
+  })(), S.layout.lines.length + ' 条线');
 
   /* 编辑保存后也应重新派生：直接改一条线路的日期再重建 */
   const beforeRebuild = S.layout.width;
